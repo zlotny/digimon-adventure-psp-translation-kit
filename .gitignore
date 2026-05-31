@@ -1,0 +1,28 @@
+# ── Game files (copyright — do not distribute) ──────────────────────────────
+*.iso
+*.xdelta
+
+# ── Extracted game data (generated — run extract-all to rebuild) ─────────────
+orig_data/
+orig_iso/
+patched_data/
+patched_iso/
+output/
+
+# ── Translation working files (generated from extraction) ────────────────────
+translations/
+
+# ── Language-specific translation folders (local work, not tracked) ──────────
+*_TRANSLATION/
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
