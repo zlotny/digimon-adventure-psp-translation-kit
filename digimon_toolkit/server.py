@@ -185,6 +185,157 @@ def api_patch_entry(category, name, index):
 # Static file serving (built Vue app)
 # ─────────────────────────────────────────────────────────────
 
+def _iter_all_entries(field='any'):
+    """
+    Yield (category, file_id, raw_entry, source_text, translation_text)
+    for every entry across dialog / eboot / names.
+    field='source'      → only entries where source field is non-empty
+    field='translation' → only entries where translation field is non-empty
+    field='any'         → all entries
+    """
+    dialog_dir = TRANS / 'dialog'
+    if dialog_dir.exists():
+        for p in sorted(dialog_dir.glob('*.json')):
+            if p.stem.startswith('ID'):
+                continue
+            data = json.loads(p.read_text(encoding='utf-8'))
+            for e in data.get('dialog', []):
+                yield 'dialog', p.stem, e, e.get('english', ''), e.get('translation', '')
+
+    eboot_dir = TRANS / 'eboot'
+    if eboot_dir.exists():
+        for p in sorted(eboot_dir.glob('*.json')):
+            data = json.loads(p.read_text(encoding='utf-8'))
+            for i, e in enumerate(data.get('strings', [])):
+                yield 'eboot', p.stem, e, e.get('text', ''), e.get('translation', '')
+
+    names_path = TRANS / 'names' / 'names.json'
+    if names_path.exists():
+        data = json.loads(names_path.read_text(encoding='utf-8'))
+        idx = 0
+        for e in data.get('character_names', []) + data.get('digimon_names', []):
+            yield 'names', 'names', e, e.get('name', ''), e.get('translation', '')
+            idx += 1
+
+
+@app.route('/api/search')
+def api_search():
+    q     = request.args.get('q', '').strip().lower()
+    field = request.args.get('field', 'any')   # 'source' | 'translation' | 'any'
+    if len(q) < 2:
+        return jsonify([])
+
+    results = []
+    entry_idx = 0  # running index for names (which has no 'index' key)
+
+    dialog_dir = TRANS / 'dialog'
+    if dialog_dir.exists():
+        for p in sorted(dialog_dir.glob('*.json')):
+            if p.stem.startswith('ID'):
+                continue
+            data = json.loads(p.read_text(encoding='utf-8'))
+            for e in data.get('dialog', []):
+                src = e.get('english', '')
+                tra = e.get('translation', '')
+                hit = (field in ('source', 'any') and q in src.lower()) or \
+                      (field in ('translation', 'any') and q in tra.lower())
+                if hit:
+                    results.append({'category': 'dialog', 'file': p.stem,
+                                    'index': e.get('index', 0), 'source': src, 'translation': tra})
+
+    eboot_dir = TRANS / 'eboot'
+    if eboot_dir.exists():
+        for p in sorted(eboot_dir.glob('*.json')):
+            data = json.loads(p.read_text(encoding='utf-8'))
+            for i, e in enumerate(data.get('strings', [])):
+                src = e.get('text', '')
+                tra = e.get('translation', '')
+                hit = (field in ('source', 'any') and q in src.lower()) or \
+                      (field in ('translation', 'any') and q in tra.lower())
+                if hit:
+                    results.append({'category': 'eboot', 'file': p.stem,
+                                    'index': i, 'source': src, 'translation': tra})
+
+    names_path = TRANS / 'names' / 'names.json'
+    if names_path.exists():
+        data = json.loads(names_path.read_text(encoding='utf-8'))
+        idx = 0
+        for e in data.get('character_names', []) + data.get('digimon_names', []):
+            src = e.get('name', '')
+            tra = e.get('translation', '')
+            hit = (field in ('source', 'any') and q in src.lower()) or \
+                  (field in ('translation', 'any') and q in tra.lower())
+            if hit:
+                results.append({'category': 'names', 'file': 'names',
+                                'index': idx, 'source': src, 'translation': tra})
+            idx += 1
+
+    return jsonify(results[:60])
+
+
+@app.route('/api/replace', methods=['POST'])
+def api_replace():
+    body    = request.get_json(silent=True) or {}
+    search  = body.get('search', '')
+    replace = body.get('replace', '')
+    mode    = body.get('mode', 'translation')   # 'source' | 'translation'
+
+    if not search:
+        return jsonify({'error': 'search is required'}), 400
+
+    # field keys by mode and category
+    SOURCE_KEY = {'dialog': 'english', 'eboot': 'text', 'names': 'name'}
+    field_key  = SOURCE_KEY if mode == 'source' else None  # None → use 'translation' everywhere
+
+    count = 0
+
+    def _replace_in_list(entries, get_key):
+        nonlocal count
+        changed = False
+        for e in entries:
+            key = get_key(e)
+            val = e.get(key, '')
+            if search in val:
+                e[key] = val.replace(search, replace)
+                count += 1
+                changed = True
+        return changed
+
+    dialog_dir = TRANS / 'dialog'
+    if dialog_dir.exists():
+        for p in sorted(dialog_dir.glob('*.json')):
+            if p.stem.startswith('ID'):
+                continue
+            data = json.loads(p.read_text(encoding='utf-8'))
+            key  = 'english' if mode == 'source' else 'translation'
+            if _replace_in_list(data.get('dialog', []), lambda e, k=key: k):
+                p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
+
+    eboot_dir = TRANS / 'eboot'
+    if eboot_dir.exists():
+        for p in sorted(eboot_dir.glob('*.json')):
+            data = json.loads(p.read_text(encoding='utf-8'))
+            key  = 'text' if mode == 'source' else 'translation'
+            if _replace_in_list(data.get('strings', []), lambda e, k=key: k):
+                p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
+
+    names_path = TRANS / 'names' / 'names.json'
+    if names_path.exists():
+        data = json.loads(names_path.read_text(encoding='utf-8'))
+        key  = 'name' if mode == 'source' else 'translation'
+        changed = False
+        for e in data.get('character_names', []) + data.get('digimon_names', []):
+            val = e.get(key, '')
+            if search in val:
+                e[key] = val.replace(search, replace)
+                count += 1
+                changed = True
+        if changed:
+            names_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
+
+    return jsonify({'count': count})
+
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_static(path):

@@ -13,19 +13,51 @@
         </button>
       </div>
     </main>
+
+    <!-- Top-right action buttons -->
+    <div class="top-actions">
+      <button class="action-btn" @click="replaceOpen = true" title="Search &amp; Replace">
+        ⇄
+      </button>
+      <button class="action-btn" @click="searchOpen = true" title="Search (Cmd+F)">
+        ⌕
+      </button>
+    </div>
+
+    <ReplaceOverlay :open="replaceOpen" @close="replaceOpen = false" />
+    <SearchOverlay :open="searchOpen" @close="searchOpen = false" />
     <Toast />
   </div>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useTranslationStore } from './stores/translation.js'
 import FileTree from './components/FileTree.vue'
 import TranslationEditor from './components/TranslationEditor.vue'
+import SearchOverlay from './components/SearchOverlay.vue'
+import ReplaceOverlay from './components/ReplaceOverlay.vue'
 import Toast from './components/Toast.vue'
 
 const store = useTranslationStore()
-onMounted(() => store.loadFiles())
+const searchOpen = ref(false)
+const replaceOpen = ref(false)
+
+onMounted(() => {
+  store.loadFiles()
+  document.addEventListener('keydown', onGlobalKey)
+})
+onUnmounted(() => document.removeEventListener('keydown', onGlobalKey))
+
+function onGlobalKey(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+    e.preventDefault()
+    searchOpen.value = true
+  }
+  if (e.key === 'Escape') {
+    searchOpen.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -76,6 +108,35 @@ onMounted(() => store.loadFiles())
 .jump-btn {
   padding: 8px 20px;
   font-size: 13px;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── top-right action buttons ── */
+.top-actions {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 100;
+  display: flex;
+  gap: 6px;
+}
+.action-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 18px;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s;
+  padding: 0;
+}
+.action-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
