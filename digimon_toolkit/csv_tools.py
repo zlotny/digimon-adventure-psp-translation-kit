@@ -56,9 +56,7 @@ def json_to_csv(json_path: str, csv_path: str) -> int:
             limit = entry.get('_length', '')
             speaker = entry.get('speaker_id', 0)
             english = _escape_newlines(entry.get('english', ''))
-            # Leave translation empty if it's identical to the English source
-            trans_raw = entry.get('translation', '')
-            translation = '' if trans_raw == entry.get('english', '') else _escape_newlines(trans_raw)
+            translation = _escape_newlines(entry.get('translation', ''))
             writer.writerow([idx, limit, speaker, english, translation])
 
     return len(entries)

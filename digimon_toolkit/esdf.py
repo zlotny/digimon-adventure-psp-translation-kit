@@ -288,8 +288,7 @@ def texts_to_json(texts: ESDFTextBlock, file_id: str,
         
         if entry:
             entry["speaker_id"] = texts.entries[i].speaker_id if i < texts.text_count else 0
-            # Place translation next to english by default
-            entry["translation"] = entry.get("english", "")
+            entry["translation"] = ""
             result["dialog"].append(entry)
     
     return result

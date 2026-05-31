@@ -1,0 +1,62 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #111111;
+  --bg-side:   #181818;
+  --bg-card:   #1e1e1e;
+  --bg-active: #252525;
+  --border:    #2a2a2a;
+  --text:      #e0e0e0;
+  --muted:     #505050;
+  --muted2:    #383838;
+  --accent:    #4a9eff;
+  --green:     #4ade80;
+  --yellow:    #fbbf24;
+  --red:       #f87171;
+
+  /* speaker colours — left-border hint on context entries */
+  --sp-0: #64748b;
+  --sp-1: #60a5fa;
+  --sp-2: #f472b6;
+  --sp-3: #4ade80;
+  --sp-4: #fb923c;
+  --sp-5: #a78bfa;
+  --sp-6: #34d399;
+  --sp-7: #fbbf24;
+  --sp-8: #f87171;
+  --sp-9: #38bdf8;
+
+  font-family: 'SF Mono', 'Fira Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+body { height: 100vh; overflow: hidden; }
+
+button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  transition: border-color 0.15s, color 0.15s;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+
+kbd {
+  display: inline-block;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--muted2); border-radius: 3px; }

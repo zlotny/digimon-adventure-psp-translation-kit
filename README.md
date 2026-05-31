@@ -1,8 +1,20 @@
 # Digimon Adventure PSP — Translation Toolkit
 
-A Python toolkit to create fan translations of **Digimon Adventure (PSP)** for any target language.
+> Translate **Digimon Adventure (PSP)** into any language, starting from the [English fan patch (v1.2)](https://digimonadventurenglish.weebly.com).
 
-It extracts dialog and UI text from the [English fan patch (v1.2)](https://digimonadventurenglish.weebly.com), converts everything to editable CSV files, and repackages the translated content into a playable ISO and a distributable xdelta patch.
+[![Translation Helper UI — file list on the left, active entry in the center with live linter feedback](docs/screenshot.png)](docs/screenshot.png)
+
+The toolkit extracts all dialog and UI text from the English patch, exposes it through a keyboard-driven web UI for translators, and repackages the finished work into a playable ISO and a distributable xdelta patch.
+
+---
+
+## Features
+
+- **Web-based translation UI** — monospace editor with context lines, byte counter, and live linter. Keyboard-first: `Cmd/Ctrl+Enter` to submit, `[` / `]` to navigate.
+- **Live linter** — flags accented characters that will be auto-stripped at build time, warns on lines that overflow the dialog box, and blocks submission if the byte limit is exceeded.
+- **Progress tracking** — per-file and overall percentage, always visible in the sidebar.
+- **One-command build** — `apply` patches the CPK in-place and produces a full ISO + xdelta patch.
+- **Language-agnostic** — the source text is the English patch; any target language plugs straight in.
 
 ---
 
@@ -44,7 +56,11 @@ source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**3. Install xdelta3** (needed to generate distributable patches)
+**3. Install Node.js 18+** (needed for the translation web UI)
+
+Download from [nodejs.org](https://nodejs.org/) or `brew install node` on macOS.
+
+**4. Install xdelta3** (needed to generate distributable patches)
 
 ```bash
 # macOS
@@ -56,7 +72,7 @@ sudo apt install xdelta3
 # Windows — download from https://github.com/jmacd/xdelta-gpl/releases
 ```
 
-**4. Extract the game files**
+**5. Extract the game files**
 
 The ISOs must be unpacked into `orig_iso/` and `patched_iso/` before the toolkit can read them. Use [7-Zip](https://www.7-zip.org/) (cross-platform) or `hdiutil` on macOS:
 
@@ -71,7 +87,7 @@ hdiutil attach -mountpoint orig_iso "3161 - Digimon Adventure (Japan).iso"
 hdiutil attach -mountpoint patched_iso "3161 - Digimon Adventure (Japan) - English Patch 1.2.iso"
 ```
 
-**5. Run the full extraction**
+**6. Run the full extraction**
 
 ```bash
 python digimon_toolkit/cli.py extract-all
@@ -83,19 +99,45 @@ This creates `orig_data/`, `patched_data/`, and the `translations/` working tree
 
 ## Translation workflow
 
-### Daily session
+### Web UI (recommended)
 
 ```bash
-# 1. Check how much is left
-python digimon_toolkit/cli.py progress
+python digimon_toolkit/cli.py serve
+```
 
-# 2. Edit CSVs in translations/csv/dialog/
-#    Fill in the 'translation' column. Leave it empty to keep the English line.
+Opens a browser at `http://localhost:5174`. On the first run it installs the Node.js dependencies and builds the app automatically.
 
-# 3. Import changes to the JSON backend
-python digimon_toolkit/cli.py from-csv
+The sidebar shows every file with its done/total count. Click a file — or press **⇥ First untranslated** — to jump straight to work.
 
-# 4. Build the ISO and xdelta patch
+| Key | Action |
+|-----|--------|
+| `Enter` | Line break in the translation |
+| `Cmd/Ctrl+Enter` | Save entry and advance |
+| `Cmd/Ctrl+[` | Go to previous entry |
+| `Cmd/Ctrl+]` | Go to next entry (discard changes) |
+
+The linter runs on every keystroke and blocks submission when:
+- The translation exceeds the byte limit for that entry
+- More than 3 lines are present (dialog box overflow)
+- A literal `\n` is typed instead of pressing Enter
+- Unsupported characters are found
+
+Accented characters (á, é, ñ…) are highlighted but allowed — they are stripped to their ASCII equivalents automatically at build time.
+
+When a file is finished the UI advances to the next one automatically.
+
+### CSV workflow (advanced / bulk editing)
+
+```bash
+python digimon_toolkit/cli.py to-csv      # export JSONs → CSVs in translations/csv/
+# edit translations/csv/dialog/*.csv in any spreadsheet or editor
+python digimon_toolkit/cli.py from-csv    # import back to JSON
+python digimon_toolkit/cli.py apply       # build ISO + patch
+```
+
+### Building the output
+
+```bash
 python digimon_toolkit/cli.py apply
 ```
 
@@ -105,27 +147,6 @@ Output files land in `output/`:
 |------|-------------|
 | `Digimon Adventure (Translated).iso` | Full ISO — load in PPSSPP to test |
 | `translation_patch.xdelta` | Distributable patch (applied over the Japanese ISO) |
-
-### CSV format
-
-One file per game scene, in `translations/csv/dialog/`.
-
-```
-index,limit,original,translation
-0,71,"During the summer of that year,\nstrange events happened all over\nEarth.",
-5,7,Taichi!,
-```
-
-| Column | Edit? | Notes |
-|--------|-------|-------|
-| `index` | No | Entry ID within the file |
-| `limit` | No | Max bytes for the translation |
-| `original` | No | English source text |
-| `translation` | **Yes** | Your translation |
-
-- `\n` inside text = in-game line break (counts as 1 byte toward `limit`).
-- Translations exceeding `limit` are silently truncated in-game.
-- You can write accented characters freely (á, é, ñ…); the toolkit strips them to ASCII at build time. If a future font hack adds native accent support, remove the `strip_accents` call in `cli.py`.
 
 ---
 
@@ -142,6 +163,7 @@ python digimon_toolkit/cli.py to-csv                   # Export JSON → CSV (tr
 python digimon_toolkit/cli.py from-csv                 # Import CSV → JSON
 python digimon_toolkit/cli.py progress                 # Show translation progress
 python digimon_toolkit/cli.py apply                    # Build ISO + xdelta patch
+python digimon_toolkit/cli.py serve                    # Launch translation web UI
 ```
 
 ---

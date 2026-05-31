@@ -14,6 +14,7 @@ Commands:
     python digimon_toolkit/cli.py from-csv                   Import CSV translations back to JSON
     python digimon_toolkit/cli.py progress                   Show translation progress stats
     python digimon_toolkit/cli.py apply                      Apply translations + image edits → build ISO+patch
+    python digimon_toolkit/cli.py serve                      Launch the translation web UI at http://localhost:5174
 """
 import sys, os, json, struct, re, shutil, subprocess
 from typing import List
@@ -270,7 +271,7 @@ def cmd_apply():
         changed = False
         for it in items:
             orig = it.get('english', it.get('text', ''))
-            trans = it.get('translation', orig)
+            trans = it.get('translation') or orig
             clean = strip_accents(trans)
             texts.append(clean)
             if clean != orig:
@@ -464,6 +465,34 @@ def cmd_from_csv():
         print(f"  {n2} entradas actualizadas en translations/other/")
 
 
+def cmd_serve():
+    import webbrowser, threading
+    webapp_dir = os.path.join(BASE, 'webapp')
+    dist_dir   = os.path.join(webapp_dir, 'dist')
+
+    if not os.path.exists(webapp_dir):
+        print("Error: webapp/ not found. Clone the full repository.")
+        return
+
+    if shutil.which('npm') is None:
+        print("Error: npm not found. Install Node.js 18+ from https://nodejs.org/")
+        return
+
+    if not os.path.exists(os.path.join(webapp_dir, 'node_modules')):
+        print("Installing webapp dependencies (first run only)…")
+        subprocess.run(['npm', 'install'], cwd=webapp_dir, check=True)
+
+    if not os.path.exists(dist_dir):
+        print("Building webapp…")
+        subprocess.run(['npm', 'run', 'build'], cwd=webapp_dir, check=True)
+
+    print("Translation Helper → http://localhost:5174")
+    threading.Timer(1.2, lambda: webbrowser.open('http://localhost:5174')).start()
+
+    from digimon_toolkit.server import run
+    run(port=5174)
+
+
 def cmd_progress():
     """Muestra el progreso de traducción del directorio CSV."""
     csv_dialog = os.path.join(TRANS, 'csv', 'dialog')
@@ -508,6 +537,7 @@ def main():
         'from-csv':       cmd_from_csv,
         'progress':       cmd_progress,
         'apply':          cmd_apply,
+        'serve':          cmd_serve,
     }
     if cmd not in cmds:
         print(__doc__)

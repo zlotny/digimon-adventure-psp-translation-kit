@@ -86,7 +86,7 @@ def build_eboot_full_json(eboot: bytes) -> Dict:
     result['names'] = {'character': [], 'digimon': []}
     for n in sorted(names.keys()):
         cat = 'character' if any(h in n for h in human_kw) else 'digimon'
-        result['names'][cat].append({'name': n, 'translation': n})
+        result['names'][cat].append({'name': n, 'translation': '', '_length': len(n.encode('ascii', errors='replace'))})
     
     # Group clusters by type
     grouped = {}
@@ -99,6 +99,6 @@ def build_eboot_full_json(eboot: bytes) -> Dict:
     
     # Add as separate JSON files
     for cat, strs in sorted(grouped.items()):
-        result[cat] = [{'text': s, 'translation': s} for s in strs]
+        result[cat] = [{'text': s, 'translation': '', '_length': len(s.encode('ascii', errors='replace'))} for s in strs]
     
     return result
