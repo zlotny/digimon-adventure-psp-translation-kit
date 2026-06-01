@@ -320,7 +320,7 @@ def build_esdf_with_texts(original_esdf: bytes, new_texts: List[str],
         if old_offset <= 0 or old_offset >= len(original_esdf):
             continue
         
-        new_bytes = new_text.encode('shift-jis', errors='replace')
+        new_bytes = new_text.encode('latin-1', errors='replace')
         new_len = len(new_bytes)
         
         if new_len <= old_length:

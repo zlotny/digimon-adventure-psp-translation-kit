@@ -84,14 +84,23 @@ import { useTranslationStore } from '../stores/translation.js'
 const store = useTranslationStore()
 const textareaRef = ref(null)
 const inputText = ref('')
-// ── accent map (mirrors cli.py _ACCENT_MAP) ──────────────────
-const ACCENT_MAP = {
-  'á':'a','Á':'A','à':'a','À':'A','â':'a','Â':'A','ä':'a','Ä':'A','ã':'a','Ã':'A','å':'a','Å':'A',
-  'é':'e','É':'E','è':'e','È':'E','ê':'e','Ê':'E','ë':'e','Ë':'E',
-  'í':'i','Í':'I','ì':'i','Ì':'I','î':'i','Î':'I','ï':'i','Ï':'I',
-  'ó':'o','Ó':'O','ò':'o','Ò':'O','ô':'o','Ô':'O','ö':'o','Ö':'O','õ':'o','Õ':'O',
-  'ú':'u','Ú':'U','ù':'u','Ù':'U','û':'u','Û':'U','ü':'u','Ü':'U',
-  'ñ':'n','Ñ':'N','ç':'c','Ç':'C','ý':'y','Ý':'Y','ÿ':'y',
+// ── accent support (mirrors font_tool.py ACCENT_MAP + cli.py _STRIP_MAP) ──────
+// Chars with dedicated font slots — write these freely in translations.
+const ACCENT_SUPPORTED = {
+  'á':'@', 'é':'#', 'í':'$', 'ó':'&', 'ú':'*', 'ñ':'+', 'ü':'=',
+}
+// Proxy ASCII chars that now render as accented letters in-game.
+// Translators must NOT use these directly.
+const PROXY_CHARS = new Set(['@', '#', '$', '&', '*', '+', '='])
+
+// Remaining accented chars without dedicated slots — stripped to ASCII base.
+const ACCENT_STRIP = {
+  'Á':'A','à':'a','À':'A','â':'a','Â':'A','ä':'a','Ä':'A','ã':'a','Ã':'A','å':'a','Å':'A',
+  'É':'E','è':'e','È':'E','ê':'e','Ê':'E','ë':'e','Ë':'E',
+  'Í':'I','ì':'i','Ì':'I','î':'i','Î':'I','ï':'i','Ï':'I',
+  'Ó':'O','ò':'o','Ò':'O','ô':'o','Ô':'O','ö':'o','Ö':'O','õ':'o','Õ':'O',
+  'Ú':'U','ù':'u','Ù':'U','û':'u','Û':'U','Ü':'U',
+  'Ñ':'N','ç':'c','Ç':'C','ý':'y','Ý':'Y','ÿ':'y',
 }
 
 const SPEAKER_COLORS = [
@@ -123,33 +132,44 @@ function speakerBorder(speakerId) {
 }
 
 // ── linter ────────────────────────────────────────────────────
-function stripAccents(text) {
-  return [...text].map(ch => ACCENT_MAP[ch] ?? ch).join('')
+// Compute the byte length as the game sees it (each char = 1 byte after remapping).
+function gameByteLength(text) {
+  return [...text].filter(ch => ch !== '\n').length
 }
 
 const lintResult = computed(() => {
   const text = inputText.value
   const issues = []
 
-  const accented = [...new Set([...text].filter(ch => ch in ACCENT_MAP))]
-  if (accented.length) {
-    const pairs = accented.map(ch => `${ch}→${ACCENT_MAP[ch]}`).join(', ')
-    issues.push({ type: 'accent', msg: `Auto-stripped at build time: ${pairs}` })
+  // Chars that will be stripped to ASCII base (à â ë etc.)
+  const stripped = [...new Set([...text].filter(ch => ch in ACCENT_STRIP))]
+  if (stripped.length) {
+    const pairs = stripped.map(ch => `${ch}→${ACCENT_STRIP[ch]}`).join(' ')
+    issues.push({ type: 'warn', msg: `Stripped to ASCII at build time: ${pairs}` })
   }
 
+  // Proxy chars used directly — these now render as accented letters, not symbols
+  const proxies = [...new Set([...text].filter(ch => PROXY_CHARS.has(ch)))]
+  if (proxies.length) {
+    const labels = { '@':'á', '#':'é', '$':'í', '&':'ó', '*':'ú', '+':'ñ', '=':'ü' }
+    const pairs = proxies.map(ch => `${ch}→${labels[ch]}`).join(' ')
+    issues.push({ type: 'error', msg: `⚠ These chars now render as accented letters: ${pairs}` })
+  }
+
+  // Truly unsupported: high-codepoint chars not in any map
   const unsupported = [...new Set([...text].filter(ch =>
-    ch.charCodeAt(0) > 127 && !(ch in ACCENT_MAP) && ch !== '\n',
+    ch.charCodeAt(0) > 127 && !(ch in ACCENT_SUPPORTED) && !(ch in ACCENT_STRIP) && ch !== '\n',
   ))]
   if (unsupported.length) {
     issues.push({ type: 'error', msg: `Unsupported characters: ${unsupported.join(' ')}` })
   }
 
-  // literal \n typed by hand — translator should press Enter instead
+  // literal \n typed by hand
   if (text.includes('\\n')) {
     issues.push({ type: 'error', msg: 'Literal \\n found — press Enter for line breaks instead' })
   }
 
-  // dialog box fits 3 lines max
+  // 3-line max
   if (text.split('\n').length > 3) {
     issues.push({ type: 'error', msg: 'Dialog box only fits 3 lines (max 2 line breaks)' })
   }
@@ -160,9 +180,10 @@ const lintResult = computed(() => {
     issues.push({ type: 'warn', msg: `Line ${longIdx + 1} may overflow (${lines[longIdx].length} chars)` })
   }
 
-  const bytes = stripAccents(text).length
+  const bytes = gameByteLength(text)
   const limit = currentEntry.value?.limit ?? null
-  const blocked = unsupported.length > 0
+  const blocked = proxies.length > 0
+    || unsupported.length > 0
     || text.includes('\\n')
     || text.split('\n').length > 3
     || (limit !== null && bytes > limit)
@@ -403,4 +424,5 @@ textarea::placeholder { color: var(--muted); }
 .notice-accent { color: var(--green);  background: rgba(74,222,128,0.08); }
 .notice-warn   { color: var(--yellow); background: rgba(251,191,36,0.08); }
 .notice-error  { color: var(--red);    background: rgba(248,113,113,0.1); }
+.notice-info   { color: var(--green);  background: rgba(74,222,128,0.08); }
 </style>

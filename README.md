@@ -11,7 +11,7 @@ The toolkit extracts all dialog and UI text from the English patch, exposes it t
 ## Features
 
 - **Web-based translation UI** — monospace editor with context lines, byte counter, and live linter. Keyboard-first: `Cmd/Ctrl+Enter` to submit, `[` / `]` to navigate.
-- **Live linter** — flags accented characters that will be auto-stripped at build time, warns on lines that overflow the dialog box, and blocks submission if the byte limit is exceeded.
+- **Live linter** — warns on lines that overflow the dialog box, blocks submission if the byte limit is exceeded, and flags characters that would render incorrectly in-game.
 - **Progress tracking** — per-file and overall percentage, always visible in the sidebar.
 - **One-command build** — `apply` patches the CPK in-place and produces a full ISO + xdelta patch.
 - **Language-agnostic** — the source text is the English patch; any target language plugs straight in.
@@ -122,7 +122,9 @@ The linter runs on every keystroke and blocks submission when:
 - A literal `\n` is typed instead of pressing Enter
 - Unsupported characters are found
 
-Accented characters (á, é, ñ…) are highlighted but allowed — they are stripped to their ASCII equivalents automatically at build time.
+**Accented characters** (á é í ó ú ñ ü) are fully supported and render correctly in-game — write them naturally in your translation. Characters like à, â, ë etc. that have no dedicated font slot are stripped to their ASCII base at build time.
+
+> **Note:** The characters `@ # $ & * + =` have been repurposed as font slots for the accented letters above. Do not use them literally in dialog text — they will render as á é í ó ú ñ ü respectively.
 
 When a file is finished the UI advances to the next one automatically.
 
@@ -164,6 +166,12 @@ python digimon_toolkit/cli.py from-csv                 # Import CSV → JSON
 python digimon_toolkit/cli.py progress                 # Show translation progress
 python digimon_toolkit/cli.py apply                    # Build ISO + xdelta patch
 python digimon_toolkit/cli.py serve                    # Launch translation web UI
+
+# Font tools
+python digimon_toolkit/font_tool.py extract            # Export translations/font_atlas.png for editing
+python digimon_toolkit/font_tool.py import-atlas       # Import edited atlas back into patched_data/3631
+python digimon_toolkit/font_tool.py patch              # Re-render accent glyphs from a system TTF
+python digimon_toolkit/font_tool.py show <hex>         # Preview one glyph (e.g. show 61 for 'a')
 ```
 
 ---

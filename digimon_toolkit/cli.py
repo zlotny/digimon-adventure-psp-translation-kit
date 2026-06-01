@@ -245,25 +245,26 @@ def cmd_apply():
     cpk = CPKArchive(PATCH_CPK); cpk.load()
     with open(PATCH_CPK, 'rb') as f: cpkd = bytearray(f.read())
 
-    # Accent/unicode→ascii mapping for chars the PSP font can't render
-    _ACCENT_MAP = str.maketrans({
-        'á': 'a', 'Á': 'A', 'à': 'a', 'À': 'A', 'â': 'a', 'Â': 'A',
+    # Accented chars now have dedicated font slots (0x81–0x90).
+    # These are remapped to those internal char codes instead of being stripped.
+    # Chars NOT in this map fall through to the ASCII strip below.
+    from digimon_toolkit.font_tool import ACCENT_MAP as _FONT_ACCENT_MAP
+    _ACCENT_REMAP = str.maketrans({ch: chr(slot) for ch, slot in _FONT_ACCENT_MAP.items()})
+
+    # Remaining accents without dedicated slots → strip to ASCII
+    _STRIP_MAP = str.maketrans({
+        'à': 'a', 'À': 'A', 'â': 'a', 'Â': 'A',
         'ä': 'a', 'Ä': 'A', 'ã': 'a', 'Ã': 'A', 'å': 'a', 'Å': 'A',
-        'é': 'e', 'É': 'E', 'è': 'e', 'È': 'E', 'ê': 'e', 'Ê': 'E',
-        'ë': 'e', 'Ë': 'E',
-        'í': 'i', 'Í': 'I', 'ì': 'i', 'Ì': 'I', 'î': 'i', 'Î': 'I',
-        'ï': 'i', 'Ï': 'I',
-        'ó': 'o', 'Ó': 'O', 'ò': 'o', 'Ò': 'O', 'ô': 'o', 'Ô': 'O',
-        'ö': 'o', 'Ö': 'O', 'õ': 'o', 'Õ': 'O',
-        'ú': 'u', 'Ú': 'U', 'ù': 'u', 'Ù': 'U', 'û': 'u', 'Û': 'U',
-        'ü': 'u', 'Ü': 'U',
-        'ñ': 'n', 'Ñ': 'N', 'ç': 'c', 'Ç': 'C',
-        'ý': 'y', 'Ý': 'Y', 'ÿ': 'y',
+        'è': 'e', 'È': 'E', 'ê': 'e', 'Ê': 'E', 'ë': 'e', 'Ë': 'E',
+        'ì': 'i', 'Ì': 'I', 'î': 'i', 'Î': 'I', 'ï': 'i', 'Ï': 'I',
+        'ò': 'o', 'Ò': 'O', 'ô': 'o', 'Ô': 'O', 'ö': 'o', 'Ö': 'O', 'õ': 'o', 'Õ': 'O',
+        'ù': 'u', 'Ù': 'U', 'û': 'u', 'Û': 'U',
+        'ç': 'c', 'Ç': 'C', 'ý': 'y', 'Ý': 'Y', 'ÿ': 'y',
     })
 
     def strip_accents(text: str) -> str:
-        """Replace accented chars with plain ASCII equivalents."""
-        return text.translate(_ACCENT_MAP)
+        """Remap supported accented chars to font slots; strip the rest."""
+        return text.translate(_ACCENT_REMAP).translate(_STRIP_MAP)
 
     def prepare_texts(items):
         """Extract translations, tracking which changed. Strips accents automatically."""
@@ -372,6 +373,12 @@ def cmd_apply():
             print(f"  ✓ image/{fid}")
             img_applied += 1
 
+    # 2b) Font file — always inject patched_data/3631 (contains patched glyph slots)
+    if patch_image_file('3631'):
+        print(f"  ✓ font/3631")
+    else:
+        print(f"  · font/3631 (unchanged or not found)")
+
     # 3) EBOOT names
     names_file = os.path.join(TRANS, 'names', 'names.json')
     eboot_path = os.path.join(PATCH_DIR, '_EBOOT.BIN')
@@ -382,11 +389,11 @@ def cmd_apply():
         for cat in ['character_names', 'digimon_names']:
             for item in nd.get(cat, []):
                 orig = item.get('name', '')
-                trans = item.get('translation', orig)
-                if trans != orig and len(trans.encode('ascii')) <= len(orig.encode('ascii')):
+                trans = strip_accents(item.get('translation', orig))
+                if trans != orig and len(trans.encode('latin-1')) <= len(orig.encode('ascii')):
                     idx = eboot.find(orig.encode())
                     if idx >= 0:
-                        tb = trans.encode('ascii')
+                        tb = trans.encode('latin-1')
                         eboot[idx:idx+len(tb)] = tb
                         if len(tb) < len(orig.encode('ascii')):
                             eboot[idx+len(tb):idx+len(orig.encode('ascii'))] = b'\x00' * (len(orig.encode('ascii')) - len(tb))

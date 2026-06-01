@@ -25,6 +25,7 @@ translations/
 
 digimon_toolkit/
 ├── cli.py           ← Command-line interface
+├── font_tool.py     ← Font extraction, atlas edit pipeline, accent glyph patching
 ├── csv_tools.py     ← JSON ↔ CSV conversion
 ├── cpk.py           ← CRI CPK archive reader/writer
 ├── esdf.py          ← ESDF text format parser
@@ -161,7 +162,30 @@ The lookup table for each episode is stored in `EBOOT.BIN` and cannot be extract
 
 ### Font rendering
 
-The English patch uses ASCII-only rendering. The font renderer is **embedded in `EBOOT.BIN`** as MIPS code — there is no separate GIM font atlas file. Adding accented characters or ñ to the dialog box would require patching the ELF binary.
+The dialog font is stored in **CPK file `3631`** as a raw binary (not GIM, not pBin).
+
+| Property | Value |
+|----------|-------|
+| File | `patched_data/3631`, byte offset **29824** (= 0x7480) |
+| Coverage | 192 chars, codes 0x20–0xDF |
+| Format | 4bpp PSP Index4, 8 bytes/row × 16 rows = 128 bytes/glyph |
+| Glyph lookup | `char_byte − 0x20` → array index → `index × 128` byte offset |
+
+At runtime the game copies glyphs on demand into a 512×256 CLUT4 texture at PSP address 0x090E4900 (a dynamic glyph cache). The metrics table (beginning of file 3631) stores per-char width/height/slot used when building that cache.
+
+**Accent character support** — seven ASCII slots are repainted as accented letters:
+
+| Write in translation | Proxy byte | Renders as |
+|:---:|:---:|:---:|
+| á | `@` 0x40 | á |
+| é | `#` 0x23 | é |
+| í | `$` 0x24 | í |
+| ó | `&` 0x26 | ó |
+| ú | `*` 0x2A | ú |
+| ñ | `+` 0x2B | ñ |
+| ü | `=` 0x3D | ü |
+
+`cli.py:cmd_apply()` remaps these automatically. **Do not use @, #, $, &, *, +, = literally in translations.**
 
 UI text (buttons, menus, banners) is **baked into GIM textures** and can be patched via `extract-image` / `inject-image`.
 
@@ -274,9 +298,24 @@ Without `rawmode='RGBA'`, PIL silently drops the alpha channel and all pixels be
 
 ### Character encoding
 
-The English patch uses ASCII for in-game text rendering. The `apply` command strips accented characters to their ASCII base equivalents before writing to the CPK (á→a, ñ→n, etc.). Translations should be written with full accents for readability; the strip pass happens automatically at apply time.
+ESDF text is encoded as Latin-1 single bytes. The `apply` command:
+1. Remaps supported accented chars to their proxy ASCII codes (á→0x40, é→0x23, etc.)
+2. Strips unsupported accented chars to their ASCII base (à→a, â→a, etc.)
 
-If a future font hack adds native support for accented characters, remove the `strip_accents` call in `cli.py:cmd_apply()`.
+Translations should use the real Unicode characters (á, ñ, etc.); the remapping happens automatically.
+
+### Font atlas editing
+
+`translations/font_atlas.png` is the source of truth for all 192 glyphs.
+
+```bash
+python digimon_toolkit/font_tool.py extract        # regenerate atlas from current font
+# edit translations/font_atlas.png (96×96 px per cell, alpha = ink intensity)
+python digimon_toolkit/font_tool.py import-atlas   # write atlas back to patched_data/3631
+# or just run build-iso.sh — it imports the atlas automatically
+```
+
+**Critical:** atlas background must be fully transparent (alpha=0). Any non-zero alpha in empty areas will render as ink.
 
 ### System requirements
 
