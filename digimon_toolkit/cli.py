@@ -473,9 +473,8 @@ def cmd_from_csv():
 
 
 def cmd_serve():
-    import webbrowser, threading
+    import webbrowser, threading, signal
     webapp_dir = os.path.join(BASE, 'webapp')
-    dist_dir   = os.path.join(webapp_dir, 'dist')
 
     if not os.path.exists(webapp_dir):
         print("Error: webapp/ not found. Clone the full repository.")
@@ -485,19 +484,30 @@ def cmd_serve():
         print("Error: npm not found. Install Node.js 18+ from https://nodejs.org/")
         return
 
+    # Kill any stale process holding port 5174
+    try:
+        r = subprocess.run(['lsof', '-ti', ':5174'], capture_output=True, text=True)
+        for pid in r.stdout.split():
+            subprocess.run(['kill', pid.strip()], capture_output=True)
+    except Exception:
+        pass
+
     if not os.path.exists(os.path.join(webapp_dir, 'node_modules')):
         print("Installing webapp dependencies (first run only)…")
         subprocess.run(['npm', 'install'], cwd=webapp_dir, check=True)
 
-    if not os.path.exists(dist_dir):
-        print("Building webapp…")
-        subprocess.run(['npm', 'run', 'build'], cwd=webapp_dir, check=True)
-
-    print("Translation Helper → http://localhost:5174")
-    threading.Timer(1.2, lambda: webbrowser.open('http://localhost:5174')).start()
-
     from digimon_toolkit.server import run
-    run(port=5174)
+    threading.Thread(target=run, kwargs={'port': 5174}, daemon=True).start()
+
+    print("Translation Helper → http://localhost:5173")
+    threading.Timer(2.0, lambda: webbrowser.open('http://localhost:5173')).start()
+
+    vite = subprocess.Popen(['npm', 'run', 'dev'], cwd=webapp_dir)
+    try:
+        vite.wait()
+    except KeyboardInterrupt:
+        vite.terminate()
+        vite.wait()
 
 
 def cmd_progress():

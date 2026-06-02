@@ -65,8 +65,39 @@ export const useTranslationStore = defineStore('translation', () => {
     }
   }
 
+  const MAX_LINE_CHARS = 31
+  const PROXY_CHARS = new Set(['@', '#', '$', '&', '*', '+', '='])
+
+  function entryHasProblem(e) {
+    const text = e.translation
+    if (!text) return false
+    if (text.split('\n').some(l => l.length > MAX_LINE_CHARS)) return true
+    if (text.split('\n').length > 3) return true
+    if (text.includes('\\n')) return true
+    if ([...text].some(ch => PROXY_CHARS.has(ch))) return true
+    const limit = e.limit ?? null
+    if (limit !== null) {
+      const bytes = [...text].filter(ch => ch !== '\n').length
+      if (bytes > limit) return true
+    }
+    return false
+  }
+
   function firstUntranslatedIndex() {
     return entries.value.findIndex(e => e.translation === '')
+  }
+
+  async function jumpToFirstProblemInProject() {
+    const all = _allFiles()
+    for (const file of all) {
+      await loadFile(file.category, file.id)
+      const idx = entries.value.findIndex(entryHasProblem)
+      if (idx !== -1) {
+        currentIndex.value = idx
+        return
+      }
+    }
+    showToast('No problems found in the project!')
   }
 
   async function jumpToFirstUntranslatedInFile() {
@@ -114,6 +145,7 @@ export const useTranslationStore = defineStore('translation', () => {
     firstUntranslatedIndex,
     jumpToFirstUntranslatedInFile,
     jumpToFirstUntranslatedInProject,
+    jumpToFirstProblemInProject,
     showToast,
   }
 })

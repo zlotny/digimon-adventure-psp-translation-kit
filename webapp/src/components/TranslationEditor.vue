@@ -108,7 +108,7 @@ const SPEAKER_COLORS = [
   'var(--sp-5)','var(--sp-6)','var(--sp-7)','var(--sp-8)','var(--sp-9)',
 ]
 
-const MAX_LINE_CHARS = 34
+const MAX_LINE_CHARS = 31
 
 // ── derived state ─────────────────────────────────────────────
 const currentEntry = computed(() => store.entries[store.currentIndex] ?? {})

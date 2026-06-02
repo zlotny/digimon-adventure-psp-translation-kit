@@ -83,6 +83,26 @@ def _file_progress(entries_raw, key):
     return done, len(entries_raw)
 
 
+_PROXY_CHARS = set('@#$&*+=')
+
+def _entry_has_problem(text, limit):
+    if not text:
+        return False
+    lines = text.split('\n')
+    if any(len(l) > 31 for l in lines):
+        return True
+    if len(lines) > 3:
+        return True
+    if '\\n' in text:
+        return True
+    if any(c in _PROXY_CHARS for c in text):
+        return True
+    if limit is not None:
+        if sum(1 for c in text if c != '\n') > limit:
+            return True
+    return False
+
+
 # ─────────────────────────────────────────────────────────────
 # Write helpers
 # ─────────────────────────────────────────────────────────────
@@ -134,7 +154,8 @@ def api_files():
             data = json.loads(p.read_text(encoding='utf-8'))
             entries = data.get('dialog', [])
             done, total = _file_progress(entries, 'translation')
-            result['dialog'].append({'id': p.stem, 'done': done, 'total': total})
+            problems = sum(1 for e in entries if _entry_has_problem(e.get('translation', ''), e.get('_length')))
+            result['dialog'].append({'id': p.stem, 'done': done, 'total': total, 'problems': problems})
 
     eboot_dir = TRANS / 'eboot'
     if eboot_dir.exists():
@@ -142,14 +163,16 @@ def api_files():
             data = json.loads(p.read_text(encoding='utf-8'))
             strings = data.get('strings', [])
             done, total = _file_progress(strings, 'translation')
-            result['eboot'].append({'id': p.stem, 'done': done, 'total': total})
+            problems = sum(1 for e in strings if _entry_has_problem(e.get('translation', ''), e.get('_length')))
+            result['eboot'].append({'id': p.stem, 'done': done, 'total': total, 'problems': problems})
 
     names_path = TRANS / 'names' / 'names.json'
     if names_path.exists():
         data = json.loads(names_path.read_text(encoding='utf-8'))
         all_names = data.get('character_names', []) + data.get('digimon_names', [])
         done, total = _file_progress(all_names, 'translation')
-        result['names'].append({'id': 'names', 'done': done, 'total': total})
+        problems = sum(1 for e in all_names if _entry_has_problem(e.get('translation', ''), e.get('_length')))
+        result['names'].append({'id': 'names', 'done': done, 'total': total, 'problems': problems})
 
     return jsonify(result)
 

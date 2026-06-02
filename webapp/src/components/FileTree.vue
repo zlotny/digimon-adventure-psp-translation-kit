@@ -10,10 +10,12 @@
         <div class="overall-bar-fill" :style="{ width: overallPct + '%' }" />
       </div>
       <div class="overall-counts">{{ totalDone }} / {{ totalTotal }} entries</div>
+      <div v-if="totalProblems > 0" class="overall-problems">{{ totalProblems }} problem{{ totalProblems === 1 ? '' : 's' }}</div>
     </div>
 
     <div class="top-actions">
       <button @click="store.jumpToFirstUntranslatedInProject()">⇥ First untranslated</button>
+      <button @click="store.jumpToFirstProblemInProject()">⚠ First problem</button>
     </div>
 
     <div v-for="cat in categories" :key="cat.key" class="category">
@@ -66,9 +68,11 @@ function catPct(key) {
   return t ? Math.round(100 * catDone(key) / t) : 0
 }
 
-const totalDone  = computed(() => ['dialog','eboot','names'].reduce((s, k) => s + catDone(k), 0))
-const totalTotal = computed(() => ['dialog','eboot','names'].reduce((s, k) => s + catTotal(k), 0))
-const overallPct = computed(() => totalTotal.value ? Math.round(100 * totalDone.value / totalTotal.value) : 0)
+const totalDone     = computed(() => ['dialog','eboot','names'].reduce((s, k) => s + catDone(k), 0))
+const totalTotal    = computed(() => ['dialog','eboot','names'].reduce((s, k) => s + catTotal(k), 0))
+const overallPct    = computed(() => totalTotal.value ? Math.round(100 * totalDone.value / totalTotal.value) : 0)
+const totalProblems = computed(() => ['dialog','eboot','names'].reduce((s, k) =>
+  s + (store.files[k] || []).reduce((s2, f) => s2 + (f.problems || 0), 0), 0))
 
 function progressClass(file) {
   if (file.total === 0) return ''
@@ -133,11 +137,19 @@ async function openFile(category, id) {
   font-size: 11px;
   color: var(--muted);
 }
+.overall-problems {
+  font-size: 11px;
+  color: var(--yellow);
+  margin-top: 3px;
+}
 
 /* ── top actions ── */
 .top-actions {
   padding: 8px 10px 10px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .top-actions button {
   width: 100%;
