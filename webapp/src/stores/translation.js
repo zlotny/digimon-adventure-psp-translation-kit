@@ -65,13 +65,13 @@ export const useTranslationStore = defineStore('translation', () => {
     }
   }
 
-  const MAX_LINE_CHARS = 31
+  const LINE_CHAR_LIMITS = [33, 33, 31]
   const PROXY_CHARS = new Set(['@', '#', '$', '&', '*', '+', '='])
 
   function entryHasProblem(e) {
     const text = e.translation
     if (!text) return false
-    if (text.split('\n').some(l => l.length > MAX_LINE_CHARS)) return true
+    if (text.split('\n').some((l, i) => l.length > LINE_CHAR_LIMITS[Math.min(i, LINE_CHAR_LIMITS.length - 1)])) return true
     if (text.split('\n').length > 3) return true
     if (text.includes('\\n')) return true
     if ([...text].some(ch => PROXY_CHARS.has(ch))) return true
@@ -98,6 +98,30 @@ export const useTranslationStore = defineStore('translation', () => {
       }
     }
     showToast('No problems found in the project!')
+  }
+
+  async function jumpToNextProblem() {
+    // Search forward from currentIndex + 1 within the current file first
+    const localIdx = entries.value.findIndex((e, i) => i > currentIndex.value && entryHasProblem(e))
+    if (localIdx !== -1) {
+      currentIndex.value = localIdx
+      return
+    }
+    // Then search subsequent files
+    const all = _allFiles()
+    const startFileIdx = all.findIndex(
+      f => f.category === currentCategory.value && f.id === currentFileId.value,
+    )
+    for (let fi = startFileIdx + 1; fi < all.length; fi++) {
+      const file = all[fi]
+      await loadFile(file.category, file.id)
+      const idx = entries.value.findIndex(entryHasProblem)
+      if (idx !== -1) {
+        currentIndex.value = idx
+        return
+      }
+    }
+    showToast('No more problems found!')
   }
 
   async function jumpToFirstUntranslatedInFile() {
@@ -146,6 +170,7 @@ export const useTranslationStore = defineStore('translation', () => {
     jumpToFirstUntranslatedInFile,
     jumpToFirstUntranslatedInProject,
     jumpToFirstProblemInProject,
+    jumpToNextProblem,
     showToast,
   }
 })

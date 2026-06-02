@@ -89,7 +89,8 @@ def _entry_has_problem(text, limit):
     if not text:
         return False
     lines = text.split('\n')
-    if any(len(l) > 31 for l in lines):
+    limits = [33, 33, 31]
+    if any(len(l) > limits[min(i, 2)] for i, l in enumerate(lines)):
         return True
     if len(lines) > 3:
         return True

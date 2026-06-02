@@ -38,6 +38,7 @@
               <kbd>⌘[</kbd><span>prev</span>
               <kbd>⌘]</kbd><span>next</span>
               <kbd>⌘↵</kbd><span>submit</span>
+              <kbd>⌘'</kbd><span>next problem</span>
               <button class="keep-btn" @click="keepEnglish">Keep English</button>
               <button @click="store.jumpToFirstUntranslatedInFile()">↓ First untranslated</button>
             </div>
@@ -108,7 +109,7 @@ const SPEAKER_COLORS = [
   'var(--sp-5)','var(--sp-6)','var(--sp-7)','var(--sp-8)','var(--sp-9)',
 ]
 
-const MAX_LINE_CHARS = 31
+const LINE_CHAR_LIMITS = [33, 33, 31]
 
 // ── derived state ─────────────────────────────────────────────
 const currentEntry = computed(() => store.entries[store.currentIndex] ?? {})
@@ -181,10 +182,12 @@ const lintResult = computed(() => {
   }
 
   const lines = text.split('\n')
-  const longIdx = lines.findIndex(l => l.length > MAX_LINE_CHARS)
-  if (longIdx !== -1) {
-    issues.push({ type: 'warn', msg: `Line ${longIdx + 1} may overflow (${lines[longIdx].length} chars)` })
-  }
+  lines.forEach((l, i) => {
+    const cap = LINE_CHAR_LIMITS[Math.min(i, LINE_CHAR_LIMITS.length - 1)]
+    if (l.length > cap) {
+      issues.push({ type: 'warn', msg: `Line ${i + 1} may overflow (${l.length}/${cap} chars)` })
+    }
+  })
 
   const bytes = gameByteLength(text)
   const limit = currentEntry.value?.limit ?? null
@@ -295,6 +298,7 @@ function onKeydown(e) {
   if (e.key === 'Enter') { e.preventDefault(); submit() }
   else if (e.key === '[') { e.preventDefault(); navigatePrev() }
   else if (e.key === ']') { e.preventDefault(); navigateNext() }
+  else if (e.key === "'") { e.preventDefault(); store.jumpToNextProblem() }
 }
 
 onMounted(() => document.addEventListener('keydown', onKeydown))

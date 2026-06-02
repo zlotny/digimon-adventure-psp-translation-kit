@@ -115,12 +115,17 @@ The sidebar shows every file with its done/total count. Click a file — or pres
 | `Cmd/Ctrl+Enter` | Save entry and advance |
 | `Cmd/Ctrl+[` | Go to previous entry |
 | `Cmd/Ctrl+]` | Go to next entry (discard changes) |
+| `Cmd/Ctrl+'` | Jump to next problem entry (across files) |
 
 The linter runs on every keystroke and blocks submission when:
 - The translation exceeds the byte limit for that entry
 - More than 3 lines are present (dialog box overflow)
 - A literal `\n` is typed instead of pressing Enter
 - Unsupported characters are found
+
+Line character limits (warnings):
+- Lines 1 and 2: max **33** characters each
+- Line 3: max **31** characters
 
 **Accented characters** (á é í ó ú ñ ü) are fully supported and render correctly in-game — write them naturally in your translation. Characters like à, â, ë etc. that have no dedicated font slot are stripped to their ASCII base at build time.
 
