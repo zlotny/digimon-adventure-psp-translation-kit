@@ -141,6 +141,12 @@ const lintResult = computed(() => {
   const text = inputText.value
   const issues = []
 
+  // Two or more accent chars in a row — the game interprets consecutive proxy
+  // bytes (@#$&*+=) as a control sequence, breaking the current and next dialogs.
+  if ([...text].some((ch, i) => ch in ACCENT_SUPPORTED && text[i + 1] in ACCENT_SUPPORTED)) {
+    issues.push({ type: 'error', msg: '⚠ Two accented letters in a row can trigger a game control sequence — separate them with a space or regular letter' })
+  }
+
   // Chars that will be stripped to ASCII base (à â ë etc.)
   const stripped = [...new Set([...text].filter(ch => ch in ACCENT_STRIP))]
   if (stripped.length) {
@@ -182,7 +188,9 @@ const lintResult = computed(() => {
 
   const bytes = gameByteLength(text)
   const limit = currentEntry.value?.limit ?? null
-  const blocked = proxies.length > 0
+  const hasConsecutiveAccents = [...text].some((ch, i) => ch in ACCENT_SUPPORTED && text[i + 1] in ACCENT_SUPPORTED)
+  const blocked = hasConsecutiveAccents
+    || proxies.length > 0
     || unsupported.length > 0
     || text.includes('\\n')
     || text.split('\n').length > 3
