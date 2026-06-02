@@ -182,10 +182,10 @@ At runtime the game copies glyphs on demand into a 512×256 CLUT4 texture at PSP
 | í | `$` 0x24 | í |
 | ó | `&` 0x26 | ó |
 | ú | `*` 0x2A | ú |
-| ñ | `+` 0x2B | ñ |
+| ñ | `_` 0x5F | ñ |
 | ü | `=` 0x3D | ü |
 
-`cli.py:cmd_apply()` remaps these automatically. **Do not use @, #, $, &, *, +, = literally in translations.**
+`cli.py:cmd_apply()` remaps these automatically. **Do not use @, #, $, &, *, _, = literally in translations.**
 
 UI text (buttons, menus, banners) is **baked into GIM textures** and can be patched via `extract-image` / `inject-image`.
 

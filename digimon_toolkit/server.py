@@ -83,7 +83,8 @@ def _file_progress(entries_raw, key):
     return done, len(entries_raw)
 
 
-_PROXY_CHARS = set('@#$&*+=')
+from digimon_toolkit.font_tool import ACCENT_MAP as _ACCENT_MAP
+_PROXY_CHARS = set(chr(v) for v in _ACCENT_MAP.values())
 
 def _entry_has_problem(text, limit):
     if not text:

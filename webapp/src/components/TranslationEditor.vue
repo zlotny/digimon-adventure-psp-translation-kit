@@ -81,35 +81,16 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useTranslationStore } from '../stores/translation.js'
+import { ACCENT_SUPPORTED, PROXY_CHARS, ACCENT_STRIP, LINE_CHAR_LIMITS } from '../accentMap.js'
 
 const store = useTranslationStore()
 const textareaRef = ref(null)
 const inputText = ref('')
-// ── accent support (mirrors font_tool.py ACCENT_MAP + cli.py _STRIP_MAP) ──────
-// Chars with dedicated font slots — write these freely in translations.
-const ACCENT_SUPPORTED = {
-  'á':'@', 'é':'#', 'í':'$', 'ó':'&', 'ú':'*', 'ñ':'+', 'ü':'=',
-}
-// Proxy ASCII chars that now render as accented letters in-game.
-// Translators must NOT use these directly.
-const PROXY_CHARS = new Set(['@', '#', '$', '&', '*', '+', '='])
-
-// Remaining accented chars without dedicated slots — stripped to ASCII base.
-const ACCENT_STRIP = {
-  'Á':'A','à':'a','À':'A','â':'a','Â':'A','ä':'a','Ä':'A','ã':'a','Ã':'A','å':'a','Å':'A',
-  'É':'E','è':'e','È':'E','ê':'e','Ê':'E','ë':'e','Ë':'E',
-  'Í':'I','ì':'i','Ì':'I','î':'i','Î':'I','ï':'i','Ï':'I',
-  'Ó':'O','ò':'o','Ò':'O','ô':'o','Ô':'O','ö':'o','Ö':'O','õ':'o','Õ':'O',
-  'Ú':'U','ù':'u','Ù':'U','û':'u','Û':'U','Ü':'U',
-  'Ñ':'N','ç':'c','Ç':'C','ý':'y','Ý':'Y','ÿ':'y',
-}
 
 const SPEAKER_COLORS = [
   'var(--sp-0)','var(--sp-1)','var(--sp-2)','var(--sp-3)','var(--sp-4)',
   'var(--sp-5)','var(--sp-6)','var(--sp-7)','var(--sp-8)','var(--sp-9)',
 ]
-
-const LINE_CHAR_LIMITS = [33, 33, 31]
 
 // ── derived state ─────────────────────────────────────────────
 const currentEntry = computed(() => store.entries[store.currentIndex] ?? {})
@@ -143,7 +124,7 @@ const lintResult = computed(() => {
   const issues = []
 
   // Two or more accent chars in a row — the game interprets consecutive proxy
-  // bytes (@#$&*+=) as a control sequence, breaking the current and next dialogs.
+  // bytes as a control sequence, breaking the current and next dialogs.
   if ([...text].some((ch, i) => ch in ACCENT_SUPPORTED && text[i + 1] in ACCENT_SUPPORTED)) {
     issues.push({ type: 'error', msg: '⚠ Two accented letters in a row can trigger a game control sequence — separate them with a space or regular letter' })
   }
@@ -158,7 +139,7 @@ const lintResult = computed(() => {
   // Proxy chars used directly — these now render as accented letters, not symbols
   const proxies = [...new Set([...text].filter(ch => PROXY_CHARS.has(ch)))]
   if (proxies.length) {
-    const labels = { '@':'á', '#':'é', '$':'í', '&':'ó', '*':'ú', '+':'ñ', '=':'ü' }
+    const labels = { '@':'á', '#':'é', '$':'í', '&':'ó', '*':'ú', '_':'ñ', '=':'ü' }
     const pairs = proxies.map(ch => `${ch}→${labels[ch]}`).join(' ')
     issues.push({ type: 'error', msg: `⚠ These chars now render as accented letters: ${pairs}` })
   }

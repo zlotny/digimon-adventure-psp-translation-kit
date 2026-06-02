@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api.js'
+import { PROXY_CHARS, LINE_CHAR_LIMITS } from '../accentMap.js'
 
 export const useTranslationStore = defineStore('translation', () => {
   const files = ref({ dialog: [], eboot: [], names: [] })
@@ -64,9 +65,6 @@ export const useTranslationStore = defineStore('translation', () => {
       showToast('All files complete!')
     }
   }
-
-  const LINE_CHAR_LIMITS = [33, 33, 31]
-  const PROXY_CHARS = new Set(['@', '#', '$', '&', '*', '+', '='])
 
   function entryHasProblem(e) {
     const text = e.translation

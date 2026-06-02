@@ -6,7 +6,7 @@ Format: 192 chars (0x20–0xDF), 128 bytes/char, 8 bytes/row × 16 rows, 4bpp
 Pixel packing: low nibble = first pixel (standard PSP Index4)
 
 Accent proxy mapping (chars reused as accented letter slots):
-    @ → á    # → é    $ → í    & → ó    * → ú    + → ñ    = → ü
+    @ → á    # → é    $ → í    & → ó    * → ú    _ → ñ    = → ü
 
 Workflow:
     1. python digimon_toolkit/font_tool.py extract
@@ -15,7 +15,7 @@ Workflow:
     2. Edit translations/font_atlas.png in any image editor.
        Each cell is 96×96 px (6× scale). White = ink, black = transparent.
        Find the accented chars at: @ col 0 row 2 / # col 3 row 1 / $ col 4 row 1
-                                   & col 6 row 1 / * col 10 row 1/ + col 11 row 1
+                                   & col 6 row 1 / * col 10 row 1/ _ col 15 row 3
                                    = col 29 row 1
 
     3. python digimon_toolkit/font_tool.py import-atlas
@@ -47,13 +47,13 @@ STRIDE      = BPR * CELL_ROWS   # 128 bytes per glyph
 ACCENT_MAP = {
     # Maps Unicode accented chars → ASCII chars that are repainted in the font.
     # These ASCII codes already work in the game renderer; we just swap the glyphs.
-    # @ # $ & * + = are not used in Spanish dialog text.
+    # @ # $ & * _ = are not used in Spanish dialog text.
     'á': 0x40,  # @
     'é': 0x23,  # #
     'í': 0x24,  # $
     'ó': 0x26,  # &
     'ú': 0x2A,  # *
-    'ñ': 0x2B,  # +
+    'ñ': 0x5F,  # _
     'ü': 0x3D,  # =
 }
 
