@@ -83,8 +83,8 @@ def glyph_to_image(g: bytes) -> Image.Image:
     return img
 
 def image_to_glyph(img: Image.Image) -> bytes:
-    """Convert RGBA PIL image → raw 4bpp glyph bytes (alpha channel → intensity)."""
-    img = img.convert('RGBA').resize((BPR*2, CELL_ROWS), Image.LANCZOS)
+    """Convert a 16×16 RGBA image → raw 4bpp glyph bytes. Alpha = ink intensity."""
+    img = img.convert('RGBA')
     g = bytearray(STRIDE)
     for row in range(CELL_ROWS):
         for bpos in range(BPR):
@@ -113,10 +113,9 @@ def render_ttf_glyph(char: str, font_path: str, size: int = 13) -> Image.Image:
 # ── commands ─────────────────────────────────────────────────────────────────
 
 ATLAS_PATH  = 'translations/font_atlas.png'
-ATLAS_SCALE = 6          # pixels per native glyph pixel in the atlas
 ATLAS_COLS  = 16
-ATLAS_CELL  = BPR * 2 * ATLAS_SCALE   # 96 px wide per cell (native 16px × 6)
-ATLAS_CROW  = CELL_ROWS * ATLAS_SCALE  # 96 px tall per cell
+ATLAS_CELL  = BPR * 2    # 16 px wide per cell — native 1:1, 1 pixel = 1 font pixel
+ATLAS_CROW  = CELL_ROWS  # 16 px tall per cell
 
 def _build_atlas(font: bytes) -> Image.Image:
     """Render all 192 glyphs into a grid PNG suitable for editing."""
@@ -141,11 +140,11 @@ def _build_atlas(font: bytes) -> Image.Image:
     for idx in range(N_CHARS):
         code = CHAR_FIRST + idx
         g    = glyph(font, code)
-        gimg = glyph_to_image(g).resize((ATLAS_CELL, ATLAS_CROW), Image.NEAREST)
+        gimg = glyph_to_image(g)   # already native 16×16 — paste directly, no resize
         col, row_g = idx % ATLAS_COLS, idx // ATLAS_COLS
         cx = col   * (ATLAS_CELL + 1) + 1
         cy = row_g * (ATLAS_CROW + 1) + 1
-        atlas.paste(gimg, (cx, cy))  # direct paste — preserves exact alpha, no compositing
+        atlas.paste(gimg, (cx, cy))
 
     return atlas
 
@@ -194,10 +193,8 @@ def cmd_import_atlas():
         cx = col   * (ATLAS_CELL + 1) + 1
         cy = row_g * (ATLAS_CROW + 1) + 1
         cell = atlas.crop((cx, cy, cx + ATLAS_CELL, cy + ATLAS_CROW))
-        # Sample back to native 16×16. Each native pixel is an ATLAS_SCALE×ATLAS_SCALE
-        # block so NEAREST recovers exact original values without any aliasing.
-        native = cell.resize((BPR * 2, CELL_ROWS), Image.NEAREST)
-        g = image_to_glyph(native)
+        # Cell is already native 16×16 — read pixels directly, no resize.
+        g = image_to_glyph(cell)
         code = CHAR_FIRST + idx
         set_glyph(font, code, g)
 
