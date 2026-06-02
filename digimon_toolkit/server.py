@@ -86,15 +86,16 @@ def _file_progress(entries_raw, key):
 from digimon_toolkit.font_tool import ACCENT_MAP as _ACCENT_MAP
 _PROXY_CHARS = set(chr(v) for v in _ACCENT_MAP.values())
 
-def _entry_has_problem(text, limit):
+def _entry_has_problem(text, limit, is_dialog=False):
     if not text:
         return False
-    lines = text.split('\n')
-    limits = [33, 33, 31]
-    if any(len(l) > limits[min(i, 2)] for i, l in enumerate(lines)):
-        return True
-    if len(lines) > 3:
-        return True
+    if is_dialog:
+        lines = text.split('\n')
+        line_limits = [33, 33, 31]
+        if any(len(l) > line_limits[min(i, 2)] for i, l in enumerate(lines)):
+            return True
+        if len(lines) > 3:
+            return True
     if '\\n' in text:
         return True
     if any(c in _PROXY_CHARS for c in text):
@@ -156,7 +157,7 @@ def api_files():
             data = json.loads(p.read_text(encoding='utf-8'))
             entries = data.get('dialog', [])
             done, total = _file_progress(entries, 'translation')
-            problems = sum(1 for e in entries if _entry_has_problem(e.get('translation', ''), e.get('_length')))
+            problems = sum(1 for e in entries if _entry_has_problem(e.get('translation', ''), e.get('_length'), is_dialog=True))
             result['dialog'].append({'id': p.stem, 'done': done, 'total': total, 'problems': problems})
 
     eboot_dir = TRANS / 'eboot'

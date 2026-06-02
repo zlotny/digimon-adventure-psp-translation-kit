@@ -157,18 +157,21 @@ const lintResult = computed(() => {
     issues.push({ type: 'error', msg: 'Literal \\n found — press Enter for line breaks instead' })
   }
 
-  // 3-line max
-  if (text.split('\n').length > 3) {
-    issues.push({ type: 'error', msg: 'Dialog box only fits 3 lines (max 2 line breaks)' })
-  }
-
-  const lines = text.split('\n')
-  lines.forEach((l, i) => {
-    const cap = LINE_CHAR_LIMITS[Math.min(i, LINE_CHAR_LIMITS.length - 1)]
-    if (l.length > cap) {
-      issues.push({ type: 'warn', msg: `Line ${i + 1} may overflow (${l.length}/${cap} chars)` })
+  const isDialog = store.currentCategory === 'dialog'
+  let tooManyLines = false
+  if (isDialog) {
+    tooManyLines = text.split('\n').length > 3
+    if (tooManyLines) {
+      issues.push({ type: 'error', msg: 'Dialog box only fits 3 lines (max 2 line breaks)' })
     }
-  })
+    const lines = text.split('\n')
+    lines.forEach((l, i) => {
+      const cap = LINE_CHAR_LIMITS[Math.min(i, LINE_CHAR_LIMITS.length - 1)]
+      if (l.length > cap) {
+        issues.push({ type: 'warn', msg: `Line ${i + 1} may overflow (${l.length}/${cap} chars)` })
+      }
+    })
+  }
 
   const bytes = gameByteLength(text)
   const limit = currentEntry.value?.limit ?? null
@@ -177,7 +180,7 @@ const lintResult = computed(() => {
     || proxies.length > 0
     || unsupported.length > 0
     || text.includes('\\n')
-    || text.split('\n').length > 3
+    || tooManyLines
     || (limit !== null && bytes > limit)
 
   return { issues, bytes, limit, blocked }
