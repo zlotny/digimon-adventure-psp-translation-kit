@@ -24,6 +24,7 @@ export const useTranslationStore = defineStore('translation', () => {
     entries.value = data.entries
     currentIndex.value = 0
     dirty.value = false
+    _syncFileMeta(category, name)
   }
 
   async function saveEntry(translation) {
@@ -35,12 +36,16 @@ export const useTranslationStore = defineStore('translation', () => {
     )
     entries.value[currentIndex.value].translation = translation
     dirty.value = false
+    _syncFileMeta(currentCategory.value, currentFileId.value)
+  }
 
-    // Sync progress counter in the file list
-    const list = files.value[currentCategory.value]
-    const file = list?.find(f => f.id === currentFileId.value)
+  function _syncFileMeta(category, name) {
+    const isDialog = category === 'dialog'
+    const list = files.value[category]
+    const file = list?.find(f => f.id === name)
     if (file) {
       file.done = entries.value.filter(e => e.translation !== '').length
+      file.problems = entries.value.filter(e => entryHasProblem(e, isDialog)).length
     }
   }
 
