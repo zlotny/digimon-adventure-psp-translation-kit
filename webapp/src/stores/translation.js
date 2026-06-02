@@ -72,9 +72,9 @@ export const useTranslationStore = defineStore('translation', () => {
     if (isDialog) {
       if (text.split('\n').some((l, i) => l.length > LINE_CHAR_LIMITS[Math.min(i, LINE_CHAR_LIMITS.length - 1)])) return true
       if (text.split('\n').length > 3) return true
+      if (text.includes('\\n')) return true
+      if ([...text].some(ch => PROXY_CHARS.has(ch))) return true
     }
-    if (text.includes('\\n')) return true
-    if ([...text].some(ch => PROXY_CHARS.has(ch))) return true
     const limit = e.limit ?? null
     if (limit !== null) {
       const bytes = [...text].filter(ch => ch !== '\n').length

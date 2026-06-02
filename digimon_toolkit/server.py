@@ -96,10 +96,10 @@ def _entry_has_problem(text, limit, is_dialog=False):
             return True
         if len(lines) > 3:
             return True
-    if '\\n' in text:
-        return True
-    if any(c in _PROXY_CHARS for c in text):
-        return True
+        if '\\n' in text:
+            return True
+        if any(c in _PROXY_CHARS for c in text):
+            return True
     if limit is not None:
         if sum(1 for c in text if c != '\n') > limit:
             return True
