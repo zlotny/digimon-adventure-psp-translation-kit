@@ -18,3 +18,6 @@ export const ACCENT_STRIP = {
 }
 
 export const LINE_CHAR_LIMITS = [33, 33, 31]
+
+// Shift-JIS 2-byte symbols the game supports natively (cost 2 bytes each in the binary).
+export const SJIS_SYMBOLS = new Set(['○', '×', '□'])

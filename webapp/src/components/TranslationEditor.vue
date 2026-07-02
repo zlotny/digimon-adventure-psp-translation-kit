@@ -81,7 +81,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useTranslationStore } from '../stores/translation.js'
-import { ACCENT_SUPPORTED, PROXY_CHARS, ACCENT_STRIP, LINE_CHAR_LIMITS } from '../accentMap.js'
+import { ACCENT_SUPPORTED, PROXY_CHARS, ACCENT_STRIP, LINE_CHAR_LIMITS, SJIS_SYMBOLS } from '../accentMap.js'
 
 const store = useTranslationStore()
 const textareaRef = ref(null)
@@ -114,9 +114,10 @@ function speakerBorder(speakerId) {
 }
 
 // ── linter ────────────────────────────────────────────────────
-// Compute the byte length as the game sees it (each char = 1 byte after remapping).
+// Compute the byte length as the game sees it (each char = 1 byte after remapping,
+// SJIS symbols cost 2 bytes each).
 function gameByteLength(text) {
-  return [...text].filter(ch => ch !== '\n').length
+  return [...text].filter(ch => ch !== '\n').reduce((n, ch) => n + (SJIS_SYMBOLS.has(ch) ? 2 : 1), 0)
 }
 
 const lintResult = computed(() => {
@@ -146,7 +147,7 @@ const lintResult = computed(() => {
 
   // Truly unsupported: high-codepoint chars not in any map
   const unsupported = [...new Set([...text].filter(ch =>
-    ch.charCodeAt(0) > 127 && !(ch in ACCENT_SUPPORTED) && !(ch in ACCENT_STRIP) && ch !== '\n',
+    ch.charCodeAt(0) > 127 && !(ch in ACCENT_SUPPORTED) && !(ch in ACCENT_STRIP) && ch !== '\n' && !SJIS_SYMBOLS.has(ch),
   ))]
   if (unsupported.length) {
     issues.push({ type: 'error', msg: `Unsupported characters: ${unsupported.join(' ')}` })
@@ -167,8 +168,9 @@ const lintResult = computed(() => {
     const lines = text.split('\n')
     lines.forEach((l, i) => {
       const cap = LINE_CHAR_LIMITS[Math.min(i, LINE_CHAR_LIMITS.length - 1)]
-      if (l.length > cap) {
-        issues.push({ type: 'warn', msg: `Line ${i + 1} may overflow (${l.length}/${cap} chars)` })
+      const displayWidth = [...l].reduce((n, ch) => n + (SJIS_SYMBOLS.has(ch) ? 2 : 1), 0)
+      if (displayWidth > cap) {
+        issues.push({ type: 'warn', msg: `Line ${i + 1} may overflow (${displayWidth}/${cap} chars)` })
       }
     })
   }
