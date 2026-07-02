@@ -412,6 +412,14 @@ def cmd_apply():
         else:
             with open(eboot_path, 'rb') as f: eboot = bytearray(f.read())
 
+            _EBOOT_SJIS = {'○': b'\x81\x9b', '×': b'\x81\x7e', '□': b'\x81\xa0'}
+
+            def _encode_eboot(text: str) -> bytes:
+                out = b''
+                for ch in text:
+                    out += _EBOOT_SJIS[ch] if ch in _EBOOT_SJIS else ch.encode('latin-1', errors='replace')
+                return out
+
             def _patch_eboot_item(item, orig_key='name'):
                 offset = item.get('_offset', -1)
                 length = item.get('_length', 0)
@@ -421,7 +429,7 @@ def cmd_apply():
                 trans = strip_accents(item.get('translation', orig))
                 if not trans:
                     return 0
-                tb = trans.encode('latin-1', errors='replace')
+                tb = _encode_eboot(trans)
                 if len(tb) > length:
                     tb = tb[:length]
                 eboot[offset:offset + len(tb)] = tb
