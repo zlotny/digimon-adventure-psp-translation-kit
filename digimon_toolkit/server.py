@@ -53,8 +53,8 @@ def _norm_name(entry, idx):
 # ─────────────────────────────────────────────────────────────
 
 def _read_file(category, name):
-    if category == 'dialog':
-        path = TRANS / 'dialog' / f'{name}.json'
+    if category in ('dialog', 'other'):
+        path = TRANS / category / f'{name}.json'
         data = json.loads(path.read_text(encoding='utf-8'))
         return [_norm_dialog(e) for e in data.get('dialog', [])]
 
@@ -140,6 +140,15 @@ def _write_entry(category, name, index, translation):
             digi[index - nc]['translation'] = translation
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
 
+    elif category == 'other':
+        path = TRANS / 'other' / f'{name}.json'
+        data = json.loads(path.read_text(encoding='utf-8'))
+        for e in data.get('dialog', []):
+            if e.get('index') == index:
+                e['translation'] = translation
+                break
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
+
 
 # ─────────────────────────────────────────────────────────────
 # API routes
@@ -147,7 +156,7 @@ def _write_entry(category, name, index, translation):
 
 @app.route('/api/files')
 def api_files():
-    result = {'dialog': [], 'eboot': [], 'names': []}
+    result = {'dialog': [], 'eboot': [], 'names': [], 'other': []}
 
     dialog_dir = TRANS / 'dialog'
     if dialog_dir.exists():
@@ -177,12 +186,25 @@ def api_files():
         problems = sum(1 for e in all_names if _entry_has_problem(e.get('translation', ''), e.get('_length')))
         result['names'].append({'id': 'names', 'done': done, 'total': total, 'problems': problems})
 
+    other_dir = TRANS / 'other'
+    if other_dir.exists():
+        for p in sorted(other_dir.glob('*.json')):
+            if p.stem.startswith('ID'):
+                continue
+            data = json.loads(p.read_text(encoding='utf-8'))
+            if data.get('skip'):
+                continue
+            entries = data.get('dialog', [])
+            done, total = _file_progress(entries, 'translation')
+            problems = sum(1 for e in entries if _entry_has_problem(e.get('translation', ''), e.get('_length')))
+            result['other'].append({'id': p.stem, 'done': done, 'total': total, 'problems': problems})
+
     return jsonify(result)
 
 
 @app.route('/api/file/<category>/<name>')
 def api_get_file(category, name):
-    if category not in ('dialog', 'eboot', 'names'):
+    if category not in ('dialog', 'eboot', 'names', 'other'):
         return jsonify({'error': 'invalid category'}), 400
     try:
         entries = _read_file(category, name)
@@ -193,7 +215,7 @@ def api_get_file(category, name):
 
 @app.route('/api/file/<category>/<name>/<int:index>', methods=['PATCH'])
 def api_patch_entry(category, name, index):
-    if category not in ('dialog', 'eboot', 'names'):
+    if category not in ('dialog', 'eboot', 'names', 'other'):
         return jsonify({'error': 'invalid category'}), 400
     body = request.get_json(silent=True) or {}
     if 'translation' not in body:
@@ -242,6 +264,17 @@ def _iter_all_entries(field='any'):
         for e in data.get('character_names', []) + data.get('digimon_names', []):
             yield 'names', 'names', e, e.get('name', ''), e.get('translation', '')
             idx += 1
+
+    other_dir = TRANS / 'other'
+    if other_dir.exists():
+        for p in sorted(other_dir.glob('*.json')):
+            if p.stem.startswith('ID'):
+                continue
+            data = json.loads(p.read_text(encoding='utf-8'))
+            if data.get('skip'):
+                continue
+            for e in data.get('dialog', []):
+                yield 'other', p.stem, e, e.get('english', ''), e.get('translation', '')
 
 
 @app.route('/api/search')
@@ -295,6 +328,23 @@ def api_search():
                 results.append({'category': 'names', 'file': 'names',
                                 'index': idx, 'source': src, 'translation': tra})
             idx += 1
+
+    other_dir = TRANS / 'other'
+    if other_dir.exists():
+        for p in sorted(other_dir.glob('*.json')):
+            if p.stem.startswith('ID'):
+                continue
+            data = json.loads(p.read_text(encoding='utf-8'))
+            if data.get('skip'):
+                continue
+            for e in data.get('dialog', []):
+                src = e.get('english', '')
+                tra = e.get('translation', '')
+                hit = (field in ('source', 'any') and q in src.lower()) or \
+                      (field in ('translation', 'any') and q in tra.lower())
+                if hit:
+                    results.append({'category': 'other', 'file': p.stem,
+                                    'index': e.get('index', 0), 'source': src, 'translation': tra})
 
     return jsonify(results[:60])
 
@@ -358,6 +408,18 @@ def api_replace():
                 changed = True
         if changed:
             names_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
+
+    other_dir = TRANS / 'other'
+    if other_dir.exists():
+        for p in sorted(other_dir.glob('*.json')):
+            if p.stem.startswith('ID'):
+                continue
+            data = json.loads(p.read_text(encoding='utf-8'))
+            if data.get('skip'):
+                continue
+            key  = 'english' if mode == 'source' else 'translation'
+            if _replace_in_list(data.get('dialog', []), lambda e, k=key: k):
+                p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
 
     return jsonify({'count': count})
 

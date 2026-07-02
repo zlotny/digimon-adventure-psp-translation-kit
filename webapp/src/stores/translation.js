@@ -4,7 +4,7 @@ import * as api from '../api.js'
 import { PROXY_CHARS, LINE_CHAR_LIMITS } from '../accentMap.js'
 
 export const useTranslationStore = defineStore('translation', () => {
-  const files = ref({ dialog: [], eboot: [], names: [] })
+  const files = ref({ dialog: [], eboot: [], names: [], other: [] })
   const currentCategory = ref(null)
   const currentFileId = ref(null)
   const entries = ref([])
@@ -53,6 +53,7 @@ export const useTranslationStore = defineStore('translation', () => {
   function _allFiles() {
     return [
       ...files.value.dialog.map(f => ({ ...f, category: 'dialog' })),
+      ...(files.value.other || []).map(f => ({ ...f, category: 'other' })),
       ...files.value.eboot.map(f => ({ ...f, category: 'eboot' })),
       ...files.value.names.map(f => ({ ...f, category: 'names' })),
     ]

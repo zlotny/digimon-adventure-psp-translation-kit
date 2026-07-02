@@ -53,6 +53,7 @@ const store = useTranslationStore()
 
 const categories = reactive([
   { key: 'dialog', label: 'Dialog', open: true },
+  { key: 'other',  label: 'Other',  open: true },
   { key: 'eboot',  label: 'Eboot',  open: true },
   { key: 'names',  label: 'Names',  open: true },
 ])
@@ -68,10 +69,11 @@ function catPct(key) {
   return t ? Math.round(100 * catDone(key) / t) : 0
 }
 
-const totalDone     = computed(() => ['dialog','eboot','names'].reduce((s, k) => s + catDone(k), 0))
-const totalTotal    = computed(() => ['dialog','eboot','names'].reduce((s, k) => s + catTotal(k), 0))
+const ALL_CATS = ['dialog','other','eboot','names']
+const totalDone     = computed(() => ALL_CATS.reduce((s, k) => s + catDone(k), 0))
+const totalTotal    = computed(() => ALL_CATS.reduce((s, k) => s + catTotal(k), 0))
 const overallPct    = computed(() => totalTotal.value ? Math.round(100 * totalDone.value / totalTotal.value) : 0)
-const totalProblems = computed(() => ['dialog','eboot','names'].reduce((s, k) =>
+const totalProblems = computed(() => ALL_CATS.reduce((s, k) =>
   s + (store.files[k] || []).reduce((s2, f) => s2 + (f.problems || 0), 0), 0))
 
 function progressClass(file) {
