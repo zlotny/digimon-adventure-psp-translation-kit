@@ -86,7 +86,11 @@ def cmd_extract_text():
             if fn.startswith('_'): continue
             with open(os.path.join(PATCH_DIR, fn), 'rb') as f: data = f.read()
             ed = extract_esdf_bin(data)
-            if not ed: continue
+            if not ed:
+                if data[:4] == b'TXTD':
+                    ed = data
+                else:
+                    continue
             blk = parse_english_esdf_texts(ed)
             if blk.text_count == 0: continue
             diag = sum(1 for e in blk.entries if ' ' in e.text and len(e.text) > 15)
@@ -379,36 +383,6 @@ def cmd_apply():
     else:
         print(f"  · font/3631 (unchanged or not found)")
 
-    # 3) EBOOT names
-    names_file = os.path.join(TRANS, 'names', 'names.json')
-    eboot_path = os.path.join(PATCH_DIR, '_EBOOT.BIN')
-    if os.path.exists(names_file) and os.path.exists(eboot_path):
-        with open(names_file, 'r', encoding='utf-8') as f: nd = json.load(f)
-        with open(eboot_path, 'rb') as f: eboot = bytearray(f.read())
-        patched = 0
-        for cat in ['character_names', 'digimon_names']:
-            for item in nd.get(cat, []):
-                orig = item.get('name', '')
-                trans = strip_accents(item.get('translation', orig))
-                if trans != orig and len(trans.encode('latin-1')) <= len(orig.encode('ascii')):
-                    idx = eboot.find(orig.encode())
-                    if idx >= 0:
-                        tb = trans.encode('latin-1')
-                        eboot[idx:idx+len(tb)] = tb
-                        if len(tb) < len(orig.encode('ascii')):
-                            eboot[idx+len(tb):idx+len(orig.encode('ascii'))] = b'\x00' * (len(orig.encode('ascii')) - len(tb))
-                        patched += 1
-        if patched:
-            iso_out = os.path.join(OUT, 'Digimon Adventure (Translated).iso')
-            if os.path.exists(iso_out):
-                with open(iso_out, 'r+b') as f:
-                    with open(PATCHED_ISO, 'rb') as fi: iso_data = fi.read()
-                    eboot_idx = iso_data.find(b'~PSP')
-                    if eboot_idx > 0:
-                        f.seek(eboot_idx)
-                        f.write(eboot)
-            print(f"  ✓ {patched} names patched in EBOOT")
-
     # ── Build ISO ──
     iso_out = os.path.join(OUT, 'Digimon Adventure (Translated).iso')
     print(f"\nBuilding ISO...")
@@ -417,6 +391,68 @@ def cmd_apply():
         f.seek(CPK_ISO_OFF)
         f.write(bytes(cpkd))
     print(f"  ✓ {iso_out} ({os.path.getsize(iso_out)/1024/1024:.0f} MB)")
+
+    # 3) EBOOT names — must run AFTER the ISO is written so it isn't overwritten
+    names_file = os.path.join(TRANS, 'names', 'names.json')
+    eboot_path = os.path.join(PATCH_DIR, '_EBOOT.BIN')
+    if os.path.exists(names_file) and os.path.exists(eboot_path):
+        with open(names_file, 'r', encoding='utf-8') as f: nd = json.load(f)
+        # Find where EBOOT.BIN starts in the ISO by scanning for ELF magic at
+        # 2048-byte sector boundaries. EBOOT is near the start of the image so
+        # reading 50 MB is more than enough.
+        eboot_iso_off = -1
+        with open(PATCHED_ISO, 'rb') as fi:
+            scan_data = fi.read(50 * 1024 * 1024)
+        for sector in range(len(scan_data) // 2048):
+            if scan_data[sector * 2048: sector * 2048 + 4] == b'\x7fELF':
+                eboot_iso_off = sector * 2048
+                break
+        if eboot_iso_off < 0:
+            print(f"  ⚠ EBOOT.BIN not found in ISO — names not patched")
+        else:
+            with open(eboot_path, 'rb') as f: eboot = bytearray(f.read())
+
+            def _patch_eboot_item(item, orig_key='name'):
+                offset = item.get('_offset', -1)
+                length = item.get('_length', 0)
+                if offset < 0 or length <= 0:
+                    return 0
+                orig = item.get(orig_key, '')
+                trans = strip_accents(item.get('translation', orig))
+                if not trans:
+                    return 0
+                tb = trans.encode('latin-1', errors='replace')
+                if len(tb) > length:
+                    tb = tb[:length]
+                eboot[offset:offset + len(tb)] = tb
+                if len(tb) < length:
+                    eboot[offset + len(tb):offset + length] = b'\x00' * (length - len(tb))
+                return 1
+
+            patched = 0
+            for cat in ['character_names', 'digimon_names']:
+                for item in nd.get(cat, []):
+                    patched += _patch_eboot_item(item, orig_key='name')
+
+            # Patch eboot string files (skill descriptions, attack names, etc.)
+            eboot_dir = os.path.join(TRANS, 'eboot')
+            if os.path.exists(eboot_dir):
+                for fn in sorted(os.listdir(eboot_dir)):
+                    if not fn.endswith('.json'): continue
+                    with open(os.path.join(eboot_dir, fn), 'r', encoding='utf-8') as f:
+                        edata = json.load(f)
+                    file_patched = 0
+                    for item in edata.get('strings', []):
+                        file_patched += _patch_eboot_item(item, orig_key='text')
+                    if file_patched:
+                        patched += file_patched
+                        print(f"  ✓ eboot/{fn} ({file_patched} strings)")
+
+            if patched:
+                with open(iso_out, 'r+b') as f:
+                    f.seek(eboot_iso_off)
+                    f.write(eboot)
+            print(f"  ✓ {patched} EBOOT entries patched")
 
     # ── xdelta patch ──
     patch_out = os.path.join(OUT, 'translation_patch.xdelta')

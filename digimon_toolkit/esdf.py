@@ -294,7 +294,29 @@ def texts_to_json(texts: ESDFTextBlock, file_id: str,
     return result
 
 
-def build_esdf_with_texts(original_esdf: bytes, new_texts: List[str], 
+_SJIS_SYMBOLS = {
+    '○': b'\x81\x9b',
+    '×': b'\x81\x7e',
+    '□': b'\x81\xa0',
+}
+
+
+def _encode_game_text(text: str) -> bytes:
+    """Encode a translation string for the ESDF binary.
+    Accent proxies are already single-byte ASCII at this point.
+    SJIS symbols (○×□) become their 2-byte Shift-JIS sequences.
+    Everything else encodes as Latin-1.
+    """
+    parts = []
+    for ch in text:
+        if ch in _SJIS_SYMBOLS:
+            parts.append(_SJIS_SYMBOLS[ch])
+        else:
+            parts.append(ch.encode('latin-1', errors='replace'))
+    return b''.join(parts)
+
+
+def build_esdf_with_texts(original_esdf: bytes, new_texts: List[str],
                          parsed_block: Optional[ESDFTextBlock] = None) -> bytes:
     """
     Rebuild an ESDF block replacing text strings using their byte offsets.
@@ -320,17 +342,32 @@ def build_esdf_with_texts(original_esdf: bytes, new_texts: List[str],
         if old_offset <= 0 or old_offset >= len(original_esdf):
             continue
         
-        new_bytes = new_text.encode('latin-1', errors='replace')
+        # Detect leading 0xFF bytes. The game has two records pointing into this
+        # slot: one at old_offset and one at old_offset+skip. The 0xFF prefix is
+        # preserved so the first record sees it (matching original behaviour).
+        # We write the translation at old_offset+skip (past the 0xFF prefix).
+        # Padding uses spaces instead of nulls when a 0xFF prefix is present:
+        # null-padding moves the string terminator earlier, which causes the game's
+        # sequential scanner to consume phantom record slots and shift all dialogs.
+        skip = 0
+        while skip < old_length and original_esdf[old_offset + skip] == 0xFF:
+            skip += 1
+        actual_offset = old_offset + skip
+        actual_length = old_length - skip
+
+        if actual_length <= 0:
+            continue
+
+        new_bytes = _encode_game_text(new_text)
         new_len = len(new_bytes)
-        
-        if new_len <= old_length:
-            # Replace and null-pad
-            result[old_offset:old_offset+new_len] = new_bytes
-            if new_len < old_length:
-                result[old_offset+new_len:old_offset+old_length] = b'\x00' * (old_length - new_len)
+        pad_byte = b' ' if skip > 0 else b'\x00'
+
+        if new_len <= actual_length:
+            result[actual_offset:actual_offset + new_len] = new_bytes
+            if new_len < actual_length:
+                result[actual_offset + new_len:actual_offset + actual_length] = pad_byte * (actual_length - new_len)
         else:
-            # Truncate to fit
-            result[old_offset:old_offset+old_length] = new_bytes[:old_length]
+            result[actual_offset:actual_offset + actual_length] = new_bytes[:actual_length]
     
     return bytes(result)
 
@@ -338,12 +375,18 @@ def build_esdf_with_texts(original_esdf: bytes, new_texts: List[str],
 def replace_text_in_pbin(pbin_data: bytes, new_texts: List[str]) -> bytes:
     """
     Replace text strings inside a pBin container's BIN ESDF entry.
-    
+
+    Also handles raw TXTD files (no pBin wrapper): detected by a 'TXTD'
+    magic header, in which case text is patched directly via offsets.
+
     CRITICAL: Works in-place within the original pBin to preserve
     the exact binary layout. Only the ESDF text bytes are changed.
     The pBin header, entry table, and all other sub-resources remain
     bit-identical to the original.
     """
+    if pbin_data[:4] == b'TXTD':
+        return build_esdf_with_texts(pbin_data, new_texts)
+
     result = bytearray(pbin_data)
     
     # Find the BIN ESDF entry manually to avoid any parsing loss
