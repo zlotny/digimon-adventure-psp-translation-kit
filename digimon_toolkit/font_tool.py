@@ -57,6 +57,22 @@ ACCENT_MAP = {
     'ü': 0x3D,  # =
 }
 
+# ── chars without a dedicated font slot: stripped to plain ASCII at apply time ─
+# Single source of truth for cli.py's cmd_apply() and server.py's problem-check.
+# Mirrored in webapp/src/accentMap.js (ACCENT_STRIP) — update both together.
+ACCENT_STRIP = {
+    'Á': 'A', 'à': 'a', 'À': 'A', 'â': 'a', 'Â': 'A',
+    'ä': 'a', 'Ä': 'A', 'ã': 'a', 'Ã': 'A', 'å': 'a', 'Å': 'A',
+    'É': 'E', 'è': 'e', 'È': 'E', 'ê': 'e', 'Ê': 'E', 'ë': 'e', 'Ë': 'E',
+    'Í': 'I', 'ì': 'i', 'Ì': 'I', 'î': 'i', 'Î': 'I', 'ï': 'i', 'Ï': 'I',
+    'Ó': 'O', 'ò': 'o', 'Ò': 'O', 'ô': 'o', 'Ô': 'O', 'ö': 'o', 'Ö': 'O', 'õ': 'o', 'Õ': 'O',
+    'Ú': 'U', 'ù': 'u', 'Ù': 'U', 'û': 'u', 'Û': 'U', 'Ü': 'U',
+    'Ñ': 'N', 'ç': 'c', 'Ç': 'C', 'ý': 'y', 'Ý': 'Y', 'ÿ': 'y',
+}
+
+# ── Shift-JIS symbols the game font supports natively (2 bytes each) ─────────
+SJIS_SYMBOLS = {'○', '×', '□'}
+
 # ── low-level helpers ─────────────────────────────────────────────────────────
 
 def read_font() -> bytes:

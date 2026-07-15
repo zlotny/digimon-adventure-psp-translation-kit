@@ -252,19 +252,11 @@ def cmd_apply():
     # Accented chars now have dedicated font slots (0x81–0x90).
     # These are remapped to those internal char codes instead of being stripped.
     # Chars NOT in this map fall through to the ASCII strip below.
-    from digimon_toolkit.font_tool import ACCENT_MAP as _FONT_ACCENT_MAP
+    from digimon_toolkit.font_tool import ACCENT_MAP as _FONT_ACCENT_MAP, ACCENT_STRIP as _FONT_ACCENT_STRIP
     _ACCENT_REMAP = str.maketrans({ch: chr(slot) for ch, slot in _FONT_ACCENT_MAP.items()})
 
     # Remaining accents without dedicated slots → strip to ASCII
-    _STRIP_MAP = str.maketrans({
-        'à': 'a', 'À': 'A', 'â': 'a', 'Â': 'A',
-        'ä': 'a', 'Ä': 'A', 'ã': 'a', 'Ã': 'A', 'å': 'a', 'Å': 'A',
-        'è': 'e', 'È': 'E', 'ê': 'e', 'Ê': 'E', 'ë': 'e', 'Ë': 'E',
-        'ì': 'i', 'Ì': 'I', 'î': 'i', 'Î': 'I', 'ï': 'i', 'Ï': 'I',
-        'ò': 'o', 'Ò': 'O', 'ô': 'o', 'Ô': 'O', 'ö': 'o', 'Ö': 'O', 'õ': 'o', 'Õ': 'O',
-        'ù': 'u', 'Ù': 'U', 'û': 'u', 'Û': 'U',
-        'ç': 'c', 'Ç': 'C', 'ý': 'y', 'Ý': 'Y', 'ÿ': 'y',
-    })
+    _STRIP_MAP = str.maketrans(_FONT_ACCENT_STRIP)
 
     def strip_accents(text: str) -> str:
         """Remap supported accented chars to font slots; strip the rest."""

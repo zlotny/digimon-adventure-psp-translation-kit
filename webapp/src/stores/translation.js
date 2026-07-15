@@ -1,7 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api.js'
-import { PROXY_CHARS, LINE_CHAR_LIMITS } from '../accentMap.js'
+import { PROXY_CHARS, LINE_CHAR_LIMITS, ACCENT_SUPPORTED, ACCENT_STRIP, SJIS_SYMBOLS } from '../accentMap.js'
+
+// Anything outside plain ASCII must be a proxy-mapped accent, an ASCII-stripped
+// accent, or a native SJIS symbol — anything else silently corrupts to '?' at
+// apply time. Mirrors the lint in TranslationEditor.vue and server.py's
+// _entry_has_problem so "problems" counts/navigation agree with what the
+// per-entry editor actually blocks.
+const SUPPORTED_EXTRA_CHARS = new Set([...Object.keys(ACCENT_SUPPORTED), ...Object.keys(ACCENT_STRIP), ...SJIS_SYMBOLS])
 
 export const useTranslationStore = defineStore('translation', () => {
   const files = ref({ dialog: [], eboot: [], names: [], other: [] })
@@ -75,7 +82,14 @@ export const useTranslationStore = defineStore('translation', () => {
   function entryHasProblem(e, isDialog = false) {
     const text = e.translation
     if (!text) return false
+    // Any char outside plain ASCII must be something the apply pipeline
+    // understands, or it silently corrupts to '?' at encode time — this
+    // applies to every category alike.
+    if ([...text].some(ch => ch.charCodeAt(0) > 127 && !SUPPORTED_EXTRA_CHARS.has(ch) && ch !== '\n')) return true
     if (isDialog) {
+      // Two accented proxy chars back-to-back are read as a control sequence
+      // by the dialog box engine, corrupting the current and next dialogs.
+      if ([...text].some((ch, i) => ch in ACCENT_SUPPORTED && text[i + 1] in ACCENT_SUPPORTED)) return true
       if (text.split('\n').some((l, i) => l.length > LINE_CHAR_LIMITS[Math.min(i, LINE_CHAR_LIMITS.length - 1)])) return true
       if (text.split('\n').length > 3) return true
       if (text.includes('\\n')) return true

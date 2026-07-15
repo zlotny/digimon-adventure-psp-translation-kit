@@ -83,13 +83,26 @@ def _file_progress(entries_raw, key):
     return done, len(entries_raw)
 
 
-from digimon_toolkit.font_tool import ACCENT_MAP as _ACCENT_MAP
+from digimon_toolkit.font_tool import ACCENT_MAP as _ACCENT_MAP, ACCENT_STRIP as _ACCENT_STRIP, SJIS_SYMBOLS as _SJIS_SYMBOLS
 _PROXY_CHARS = set(chr(v) for v in _ACCENT_MAP.values())
+# Any char outside plain ASCII must be one the game font/apply pipeline actually
+# understands (proxy-mapped accent, ASCII-stripped accent, or native SJIS symbol) —
+# anything else silently corrupts to '?' when written to the ESDF binary.
+_SUPPORTED_EXTRA_CHARS = set(_ACCENT_MAP.keys()) | set(_ACCENT_STRIP.keys()) | _SJIS_SYMBOLS
 
 def _entry_has_problem(text, limit, is_dialog=False):
     if not text:
         return False
+    # Any char outside plain ASCII must be something the apply pipeline
+    # understands, or it silently corrupts to '?' when Latin-1-encoding the
+    # ESDF/EBOOT binary — this applies to every category alike.
+    if any(ord(c) > 127 and c not in _SUPPORTED_EXTRA_CHARS for c in text if c != '\n'):
+        return True
     if is_dialog:
+        # Two accented proxy chars back-to-back are read as a control sequence
+        # by the dialog box engine, corrupting the current and next dialogs.
+        if any(text[i] in _ACCENT_MAP and text[i + 1] in _ACCENT_MAP for i in range(len(text) - 1)):
+            return True
         lines = text.split('\n')
         line_limits = [33, 33, 31]
         if any(len(l) > line_limits[min(i, 2)] for i, l in enumerate(lines)):
