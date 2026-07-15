@@ -130,16 +130,26 @@ index,limit,original,translation
 
 Dialog files in the CPK are identified by a numeric ID (e.g. `3520`) and a zero-padded prefixed variant (`ID03520`). The `apply` command patches both variants automatically from a single JSON file.
 
-The numeric IDs roughly map to the 54 anime episodes plus extra game-specific scenes:
+The numeric IDs roughly map to the 54 anime episodes plus extra game-specific scenes.
+These boundaries were verified in 2026-07 by reading actual dialog content (not
+guessed from the ID range) — see `translations/progress.sh`'s `ARC_RANGES` for the
+version this table must stay in sync with:
 
 | File range | Content |
 |------------|---------|
-| 3520–3533 | Episodes 1–13 (Devimon arc) |
-| 3534–3540 | Episodes 14–20 (Etemon arc) |
-| 3541–3561 | Episodes 21–39 (Myotismon arc) |
-| 3562–3574 | Episodes 40–52 (Dark Masters arc) |
-| 3575–3580 | Episodes 53–54 (Apocalymon arc) |
-| 3581–3622 | Game-original scenes, battles, side content |
+| 3520–3541 | Episodes 1–13 (Devimon arc). Devimon's defeat + Gennai's epilogue are the tail of 3541. |
+| 3542–3547 | Episodes 14–20 (Etemon arc). Etemon dies in 3547. |
+| 3548–3571 | Episodes 21–39 (Myotismon/VenomVamdemon arc). VenomVamdemon falls in 3571. |
+| 3572–3584, 3611–3614 | Episodes 40–52 (Dark Masters arc). The four Dark Masters fall across 3572–3584; 3611–3614 are non-contiguous memorial/epilogue scenes for the same saga (Whamon's and Piccolomon's graves). |
+| 3585–3586 | Episodes 53–54 (Apocalymon arc), including the series finale/epilogue. |
+| 3587–3589 | *Digimon Adventure: Our War Game!* (the movie — not part of the 54-episode TV series). |
+| 3590–3610 | Game-original side-quests/minigames with no anime tie-in. |
+| 3615–3622 | Game-original bonus dungeon: a crossover gauntlet cameo-ing heroes from later Digimon series (02, Tamers, Frontier, Data Squad, Xros Wars). |
+
+Note: files `3537` and `3601` don't exist — real gaps in the numbering, not extraction
+errors. Several files are near-duplicate script branches for when the party splits
+(e.g. `3531`/`3532`, `3533`/`3534`, `3527`/`3528`) — translate both, they diverge in
+minor dialogue.
 
 ### Speaker IDs in dialog CSV
 
