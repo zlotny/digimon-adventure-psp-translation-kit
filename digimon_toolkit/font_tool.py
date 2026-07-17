@@ -71,7 +71,7 @@ ACCENT_STRIP = {
 }
 
 # ── Shift-JIS symbols the game font supports natively (2 bytes each) ─────────
-SJIS_SYMBOLS = {'○', '×', '□'}
+SJIS_SYMBOLS = {'○', '×', '□', '→', '←', '↑', '↓'}
 
 # ── low-level helpers ─────────────────────────────────────────────────────────
 

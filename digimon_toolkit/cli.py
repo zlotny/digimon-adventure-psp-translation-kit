@@ -404,7 +404,10 @@ def cmd_apply():
         else:
             with open(eboot_path, 'rb') as f: eboot = bytearray(f.read())
 
-            _EBOOT_SJIS = {'○': b'\x81\x9b', '×': b'\x81\x7e', '□': b'\x81\xa0'}
+            _EBOOT_SJIS = {
+                '○': b'\x81\x9b', '×': b'\x81\x7e', '□': b'\x81\xa0',
+                '→': b'\x81\xa8', '←': b'\x81\xa9', '↑': b'\x81\xaa', '↓': b'\x81\xab',
+            }
 
             def _encode_eboot(text: str) -> bytes:
                 out = b''

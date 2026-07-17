@@ -298,13 +298,17 @@ _SJIS_SYMBOLS = {
     '○': b'\x81\x9b',
     '×': b'\x81\x7e',
     '□': b'\x81\xa0',
+    '→': b'\x81\xa8',
+    '←': b'\x81\xa9',
+    '↑': b'\x81\xaa',
+    '↓': b'\x81\xab',
 }
 
 
 def _encode_game_text(text: str) -> bytes:
     """Encode a translation string for the ESDF binary.
     Accent proxies are already single-byte ASCII at this point.
-    SJIS symbols (○×□) become their 2-byte Shift-JIS sequences.
+    SJIS symbols (○×→←↑↓) become their 2-byte Shift-JIS sequences.
     Everything else encodes as Latin-1.
     """
     parts = []
