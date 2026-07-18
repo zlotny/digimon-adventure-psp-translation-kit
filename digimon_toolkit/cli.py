@@ -281,6 +281,14 @@ def cmd_apply():
         Applies to BOTH the bare name (e.g. '3520') AND the ID-prefixed
         zero-padded variant (e.g. 'ID03520') so the English-patch files
         are always updated together with their originals.
+
+        Bare and ID-prefixed names commonly alias the exact same
+        (offset, size) region in the CPK. Each unique region is patched
+        only once: patching it a second time would re-extract the
+        already-translated bytes, re-parse them for entry offsets (which
+        have shifted because the Spanish text is a different length than
+        the English source), and overwrite at those wrong offsets —
+        silently corrupting/shuffling dialog text.
         """
         try:
             padded_id = f'ID{int(fid):05d}'
@@ -294,10 +302,15 @@ def cmd_apply():
         targets.add(f'ID{fid}')
 
         patched_any = False
+        seen_regions = set()
         for e in cpk.files:
             n = str(e.file_name)
             if n not in targets:
                 continue
+            region = (e.file_offset, e.file_size)
+            if region in seen_regions:
+                continue
+            seen_regions.add(region)
             try:
                 ck = cpk.extract_file(bytes(cpkd), e)
                 nc = replace_text_in_pbin(ck, texts)
