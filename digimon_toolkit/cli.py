@@ -6,18 +6,15 @@ Digimon Adventure PSP - Translation Toolkit CLI
 Commands:
     python digimon_toolkit/cli.py extract-cpk               Extract both CPKs (deduplicated)
     python digimon_toolkit/cli.py extract-text               Extract ALL text to JSON (includes speaker_id)
-    python digimon_toolkit/cli.py extract-images             Extract patched UI images to output/images/
-    python digimon_toolkit/cli.py extract-image <id>         Extract images from a single file (e.g. 0156)
-    python digimon_toolkit/cli.py inject-image <id> <N> <png>  Replace image N in file <id> with a PNG
-    python digimon_toolkit/cli.py extract-all                Full extraction (cpk + text + images)
-    python digimon_toolkit/cli.py to-csv                     Export dialog JSONs to CSV (translations/csv/)
-    python digimon_toolkit/cli.py from-csv                   Import CSV translations back to JSON
+    python digimon_toolkit/cli.py extract-images             Extract GIM images changed vs. Japanese to translations/images/
+    python digimon_toolkit/cli.py extract-videos             Extract the TV opening (video+audio) to translations/videos/intro.mp4
+    python digimon_toolkit/cli.py extract-audio               Extract the menu theme to translations/audio/menu_theme.wav
+    python digimon_toolkit/cli.py extract-all                Full extraction (cpk + text + images + videos + audio)
     python digimon_toolkit/cli.py progress                   Show translation progress stats
     python digimon_toolkit/cli.py apply                      Apply translations + image edits → build ISO+patch
     python digimon_toolkit/cli.py serve                      Launch the translation web UI at http://localhost:5174
 """
-import sys, os, json, struct, re, shutil, subprocess
-from typing import List
+import sys, os, json, re, shutil, subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -25,8 +22,9 @@ from digimon_toolkit.cpk import CPKArchive
 from digimon_toolkit.pbin import parse_pbin
 from digimon_toolkit.esdf import extract_esdf_bin, parse_english_esdf_texts, texts_to_json, replace_text_in_pbin
 from digimon_toolkit.psp_image import extract_all_gim, gim_info_to_png, inject_image_into_file
+from digimon_toolkit.psmf import is_psmf, extract_psmf_to_mp4, splice_audio_into_psmf
+from digimon_toolkit.afs2 import is_afs2, extract_track as afs2_extract_track, decode_riff_to_wav, splice_track_into_archive
 from digimon_toolkit.eboot_patcher import build_eboot_full_json
-from digimon_toolkit.csv_tools import json_dir_to_csv_dir, csv_dir_to_json_dir, stats as csv_stats
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORIG_CPK = os.path.join(BASE, 'orig_iso/PSP_GAME/USRDIR/FILEDATA.CPK')
@@ -131,112 +129,142 @@ def cmd_extract_text():
 
 
 def cmd_extract_images():
-    """Extract all GIM images from the 11 patched image files to output/images/."""
-    _PATCHED_IMAGE_IDS = [
-        '0015', '0044', '0045', '0046', '0047', '0048',
-        '0050', '0069', '0070', '0126', '0151', '0156',
-    ]
-    out_base = os.path.join(OUT, 'images')
+    """
+    Extract GIM images the English patch actually changed, to
+    translations/images/<fileid>/. Diffs per-image (not per-file) against
+    orig_data/ — a file with 8 icons where only 1 was localized only
+    extracts that 1, so this stays limited to genuinely translatable content
+    instead of every texture/icon/background in the game.
+    Never overwrites an existing '*_translated.png' — safe to re-run.
+    """
+    if not os.path.exists(ORIG_DIR):
+        print("  orig_data/ not found — run 'extract-cpk' first")
+        return
+
+    out_base = os.path.join(TRANS, 'images')
     os.makedirs(out_base, exist_ok=True)
 
+    def _raw_key(info):
+        pal = info.get('palette')
+        return (info['pix_raw'], pal['raw_orig'] if pal else b'')
+
+    files_with_images = 0
     total = 0
-    for fid in _PATCHED_IMAGE_IDS:
-        fpath = os.path.join(PATCH_DIR, fid)
-        if not os.path.exists(fpath):
-            print(f"  skip {fid} (not found)")
+    skipped = 0
+    for fn in sorted(os.listdir(PATCH_DIR)):
+        if fn.startswith('ID') or fn.startswith('_'):
+            continue
+        fpath = os.path.join(PATCH_DIR, fn)
+        if not os.path.isfile(fpath):
             continue
         with open(fpath, 'rb') as f:
             data = f.read()
+        if b'MIG.00.1PSP' not in data:
+            continue
         images = extract_all_gim(data)
         if not images:
-            print(f"  skip {fid} (no GIM found)")
             continue
-        fout = os.path.join(out_base, fid)
+
+        orig_path = os.path.join(ORIG_DIR, fn)
+        orig_keys = []
+        if os.path.exists(orig_path):
+            with open(orig_path, 'rb') as f:
+                orig_data = f.read()
+            orig_keys = [_raw_key(i) for i in extract_all_gim(orig_data)]
+
+        changed = [info for info in images
+                   if info['idx'] >= len(orig_keys) or _raw_key(info) != orig_keys[info['idx']]]
+        if not changed:
+            continue
+
+        fout = os.path.join(out_base, fn)
         os.makedirs(fout, exist_ok=True)
-        for info in images:
+        files_with_images += 1
+        for info in changed:
+            out_path = os.path.join(fout, f'{fn}_{info["idx"]:02d}_{info["width"]}x{info["height"]}.png')
+            if os.path.exists(out_path):
+                total += 1
+                continue
             png = gim_info_to_png(info)
             if png:
-                out_path = os.path.join(fout, f'img_{info["idx"]:02d}_{info["width"]}x{info["height"]}.png')
                 with open(out_path, 'wb') as f:
                     f.write(png)
-                print(f"    {fid}/img_{info['idx']:02d}  {info['width']}×{info['height']}  fmt={info['format']}")
                 total += 1
             else:
-                print(f"    {fid}/img_{info['idx']:02d}  {info['width']}×{info['height']}  fmt={info['format']}  (no PIL — skipped)")
-    print(f"  {total} images → {out_base}/")
+                skipped += 1
+                print(f"    {fn}/img_{info['idx']:02d}  {info['width']}×{info['height']}  fmt={info['format']}  (could not decode — skipped)")
+
+    print(f"  {total} changed images from {files_with_images} files → {out_base}/")
+    if skipped:
+        print(f"  {skipped} images skipped (undecodable)")
 
 
-def cmd_extract_image(file_id: str):
-    """Extract all images from a single patched_data/<file_id> file."""
-    fpath = os.path.join(PATCH_DIR, file_id)
-    if not os.path.exists(fpath):
-        print(f"  File not found: {fpath}")
-        return
-    with open(fpath, 'rb') as f:
-        data = f.read()
-    images = extract_all_gim(data)
-    if not images:
-        print(f"  No GIM images found in {file_id}")
-        return
-
-    out_base = os.path.join(OUT, 'images', file_id)
+def cmd_extract_videos():
+    """
+    Extract the TV series opening (file 3691, the only cutscene actually
+    worth translating right now) to translations/videos/intro.mp4. Video is
+    stream-copied losslessly; audio (ATRAC3+) is decoded and re-encoded to
+    AAC since ATRAC3+ isn't a valid MP4 codec.
+    """
+    out_base = os.path.join(TRANS, 'videos')
     os.makedirs(out_base, exist_ok=True)
-    for info in images:
-        png = gim_info_to_png(info)
-        if png:
-            out_path = os.path.join(out_base, f'img_{info["idx"]:02d}_{info["width"]}x{info["height"]}.png')
-            with open(out_path, 'wb') as f:
-                f.write(png)
-            print(f"  img_{info['idx']:02d}  {info['width']}×{info['height']}  fmt={info['format']}  → {out_path}")
-        else:
-            print(f"  img_{info['idx']:02d}  {info['width']}×{info['height']}  fmt={info['format']}  (Pillow not installed — no PNG)")
 
-    print(f"  {len(images)} images found.")
-
-
-def cmd_inject_image(file_id: str, img_idx: int, png_path: str):
-    """
-    Replace image img_idx in patched_data/<file_id> with the given PNG.
-    Also updates the ID-prefixed variant (ID0XXXX).
-    """
-    fpath = os.path.join(PATCH_DIR, file_id)
+    fid = '3691'
+    fpath = os.path.join(PATCH_DIR, fid)
     if not os.path.exists(fpath):
-        print(f"  File not found: {fpath}")
+        print(f"  {fid} not found — run 'extract-cpk' first")
         return
-    if not os.path.exists(png_path):
-        print(f"  PNG not found: {png_path}")
-        return
-
     with open(fpath, 'rb') as f:
         data = f.read()
-
-    try:
-        new_data = inject_image_into_file(data, img_idx, png_path)
-    except ValueError as e:
-        print(f"  Error: {e}")
+    if not is_psmf(data):
+        print(f"  {fid} is not a PSMF file")
         return
 
-    with open(fpath, 'wb') as f:
-        f.write(new_data)
-    print(f"  ✓ Injected img_{img_idx} into {fpath}")
-
-    # Also update ID-prefixed variant
+    out_path = os.path.join(out_base, 'intro.mp4')
+    if os.path.exists(out_path):
+        print(f"  videos/intro.mp4 already exists")
+        return
     try:
-        padded = f'ID{int(file_id):05d}'
-    except ValueError:
-        padded = f'ID{file_id}'
-    id_path = os.path.join(PATCH_DIR, padded)
-    if os.path.exists(id_path):
-        with open(id_path, 'rb') as f:
-            id_data = f.read()
-        new_id_data = inject_image_into_file(id_data, img_idx, png_path)
-        with open(id_path, 'wb') as f:
-            f.write(new_id_data)
-        print(f"  ✓ Injected img_{img_idx} into {id_path}")
+        extract_psmf_to_mp4(data, out_path)
+        print(f"  {fid} → videos/intro.mp4")
+    except Exception as e:
+        print(f"  {fid}: FAILED ({e})")
+
+
+def cmd_extract_audio():
+    """
+    Extract the menu theme (file 3693, AFS2 track id 0 — the only BGM track
+    actually worth translating right now) to translations/audio/menu_theme.wav,
+    decoded to plain PCM for reference/dubbing.
+    """
+    out_base = os.path.join(TRANS, 'audio')
+    os.makedirs(out_base, exist_ok=True)
+
+    fid, track_id = '3693', 0
+    fpath = os.path.join(PATCH_DIR, fid)
+    if not os.path.exists(fpath):
+        print(f"  {fid} not found — run 'extract-cpk' first")
+        return
+    with open(fpath, 'rb') as f:
+        data = f.read()
+    if not is_afs2(data):
+        print(f"  {fid} is not an AFS2 archive")
+        return
+
+    out_path = os.path.join(out_base, 'menu_theme.wav')
+    if os.path.exists(out_path):
+        print(f"  audio/menu_theme.wav already exists")
+        return
+    try:
+        riff = afs2_extract_track(data, track_id)
+        decode_riff_to_wav(riff, out_path)
+        print(f"  {fid} track {track_id} → audio/menu_theme.wav")
+    except Exception as e:
+        print(f"  {fid} track {track_id}: FAILED ({e})")
 
 
 def cmd_extract_all():
-    for c in [cmd_extract_cpk, cmd_extract_text, cmd_extract_images]:
+    for c in [cmd_extract_cpk, cmd_extract_text, cmd_extract_images, cmd_extract_videos, cmd_extract_audio]:
         c(); print()
 
 
@@ -339,17 +367,11 @@ def cmd_apply():
                 print(f"  ✓ {sub}/{fn}")
                 applied += 1
 
-    # 2) Modified image files (patched_data/<id> edited via inject-image)
-    _IMAGE_IDS = [
-        '0015', '0044', '0045', '0046', '0047', '0048',
-        '0050', '0069', '0070', '0126', '0151', '0156',
-    ]
-
     def patch_image_file(fid):
         """
         If patched_data/<fid> differs from the CPK's stored version, inject it.
         Works for both the bare name and the ID-prefixed zero-padded variant.
-        inject-image writes in-place so the sizes always match.
+        Used for the font file, which font_tool.py writes in-place (same size).
         """
         src = os.path.join(PATCH_DIR, fid)
         if not os.path.exists(src):
@@ -376,17 +398,137 @@ def cmd_apply():
             patched_any = True
         return patched_any
 
-    img_applied = 0
-    for fid in _IMAGE_IDS:
-        if patch_image_file(fid):
-            print(f"  ✓ image/{fid}")
-            img_applied += 1
-
-    # 2b) Font file — always inject patched_data/3631 (contains patched glyph slots)
+    # Font file — always inject patched_data/3631 (contains patched glyph slots)
     if patch_image_file('3631'):
         print(f"  ✓ font/3631")
     else:
         print(f"  · font/3631 (unchanged or not found)")
+
+    # 2) UI/texture images — translations/images/<fid>/<fid>_<idx>_<w>x<h>.png
+    # with a '<same>_translated.png' sibling. Untranslated ones are skipped
+    # and counted below; nothing is required to have a translation.
+    img_applied = img_skipped = img_failed = 0
+    img_dir = os.path.join(TRANS, 'images')
+    if os.path.exists(img_dir):
+        for fid in sorted(os.listdir(img_dir)):
+            fid_dir = os.path.join(img_dir, fid)
+            if not os.path.isdir(fid_dir):
+                continue
+            base_pngs = sorted(f for f in os.listdir(fid_dir)
+                                if f.endswith('.png') and not f[:-4].endswith('_translated'))
+            edits = []
+            for fn in base_pngs:
+                stem = fn[:-4]
+                translated = os.path.join(fid_dir, f'{stem}_translated.png')
+                if not os.path.exists(translated):
+                    img_skipped += 1
+                    continue
+                m = re.match(rf'{re.escape(fid)}_(\d+)_\d+x\d+$', stem)
+                if not m:
+                    img_failed += 1
+                    print(f"  ⚠ images/{fid}: unrecognised filename {fn}, skipping")
+                    continue
+                edits.append((int(m.group(1)), translated))
+            if not edits:
+                continue
+
+            try:
+                padded_id = f'ID{int(fid):05d}'
+            except ValueError:
+                padded_id = f'ID{fid}'
+            targets = {fid, padded_id, f'ID{fid}'}
+            matches = [e for e in cpk.files if str(e.file_name) in targets]
+            if not matches:
+                print(f"  ⚠ images/{fid}: not found in CPK, skipping")
+                img_failed += len(edits)
+                continue
+
+            content = cpk.extract_file(bytes(cpkd), matches[0])
+            file_applied = 0
+            for img_idx, translated_path in edits:
+                try:
+                    content = inject_image_into_file(content, img_idx, translated_path)
+                    file_applied += 1
+                except Exception as exc:
+                    img_failed += 1
+                    print(f"  ⚠ images/{fid} img_{img_idx:02d}: {exc}")
+
+            if file_applied:
+                seen_regions = set()
+                for e in matches:
+                    region = (e.file_offset, e.file_size)
+                    if region in seen_regions:
+                        continue
+                    seen_regions.add(region)
+                    if len(content) == e.file_size:
+                        cpkd[e.file_offset:e.file_offset + e.file_size] = content
+                    else:
+                        cpkd[e.file_offset:e.file_offset + len(content)] = content[:e.file_size]
+                print(f"  ✓ images/{fid} ({file_applied} translated)")
+                img_applied += file_applied
+
+    # 3) Video/audio — translations/videos/intro_translated.at3 (splices into
+    # the PSMF's audio, video untouched) and translations/audio/menu_theme_translated.at3
+    # (fills the AFS2 track's slot, other tracks untouched). Same-size-budget
+    # splices only — no CPK resize support yet — so anything that doesn't
+    # fit is reported, not silently dropped.
+    def patch_cpk_entry(fid, new_content):
+        try:
+            padded_id = f'ID{int(fid):05d}'
+        except ValueError:
+            padded_id = f'ID{fid}'
+        targets = {fid, padded_id, f'ID{fid}'}
+        matches = [e for e in cpk.files if str(e.file_name) in targets]
+        if not matches:
+            print(f"  ⚠ {fid}: not found in CPK, skipping")
+            return False
+        ok = False
+        seen_regions = set()
+        for e in matches:
+            region = (e.file_offset, e.file_size)
+            if region in seen_regions:
+                continue
+            seen_regions.add(region)
+            if len(new_content) != e.file_size:
+                print(f"  ⚠ {fid}: size mismatch ({len(new_content)} vs {e.file_size}), skipping")
+                continue
+            cpkd[e.file_offset:e.file_offset + e.file_size] = new_content
+            ok = True
+        return ok
+
+    av_applied = 0
+
+    intro_at3 = os.path.join(TRANS, 'videos', 'intro_translated.at3')
+    if os.path.exists(intro_at3):
+        orig_entry = next((e for e in cpk.files if str(e.file_name) == '3691'), None)
+        with open(intro_at3, 'rb') as f:
+            new_riff = f.read()
+        try:
+            if orig_entry is None:
+                raise ValueError("3691 not found in CPK")
+            orig_3691 = cpk.extract_file(bytes(cpkd), orig_entry)
+            new_3691 = splice_audio_into_psmf(orig_3691, new_riff)
+            if patch_cpk_entry('3691', new_3691):
+                print(f"  ✓ videos/intro_translated.at3 → 3691")
+                av_applied += 1
+        except Exception as e:
+            print(f"  ⚠ videos/intro_translated.at3: {e}")
+
+    menu_at3 = os.path.join(TRANS, 'audio', 'menu_theme_translated.at3')
+    if os.path.exists(menu_at3):
+        orig_entry = next((e for e in cpk.files if str(e.file_name) == '3693'), None)
+        with open(menu_at3, 'rb') as f:
+            new_track = f.read()
+        try:
+            if orig_entry is None:
+                raise ValueError("3693 not found in CPK")
+            orig_3693 = cpk.extract_file(bytes(cpkd), orig_entry)
+            new_3693 = splice_track_into_archive(orig_3693, 0, new_track)
+            if patch_cpk_entry('3693', new_3693):
+                print(f"  ✓ audio/menu_theme_translated.at3 → 3693")
+                av_applied += 1
+        except Exception as e:
+            print(f"  ⚠ audio/menu_theme_translated.at3: {e}")
 
     # ── Build ISO ──
     iso_out = os.path.join(OUT, 'Digimon Adventure (Translated).iso')
@@ -477,51 +619,14 @@ def cmd_apply():
     if os.path.exists(patch_out):
         print(f"  ✓ {patch_out} ({os.path.getsize(patch_out)/1024/1024:.0f} MB)")
 
+    print(f"\nImages: {img_applied} translated & applied, {img_skipped} extracted-but-not-yet-translated"
+          + (f", {img_failed} failed" if img_failed else ""))
+    print(f"Video/audio: {av_applied}/2 translated & applied (intro, menu theme)")
+
     print(f"\nOutput files:")
     for f in sorted(os.listdir(OUT)):
         sz = os.path.getsize(os.path.join(OUT, f))
         print(f"  {f}: {sz/1024/1024:.1f} MB" if sz > 1e6 else f"  {f}: {sz/1024:.1f} KB")
-
-
-# ═════════════════════════════════════════════════════════
-# CSV WORKFLOW
-# ═════════════════════════════════════════════════════════
-
-def cmd_to_csv():
-    """Exporta los JSON de diálogo a CSV en translations/csv/dialog/"""
-    csv_dialog = os.path.join(TRANS, 'csv', 'dialog')
-    n = json_dir_to_csv_dir(os.path.join(TRANS, 'dialog'), csv_dialog)
-    print(f"  {n} entradas → {csv_dialog}/")
-    # También exporta 'other' (los sin prefijo ID, que son los de trabajo)
-    csv_other = os.path.join(TRANS, 'csv', 'other')
-    # Solo los ficheros other sin prefijo ID
-    os.makedirs(csv_other, exist_ok=True)
-    other_dir = os.path.join(TRANS, 'other')
-    n2 = 0
-    if os.path.exists(other_dir):
-        from digimon_toolkit.csv_tools import json_to_csv
-        for fname in sorted(os.listdir(other_dir)):
-            if not fname.endswith('.json') or fname.startswith('ID'):
-                continue
-            src = os.path.join(other_dir, fname)
-            dst = os.path.join(csv_other, fname[:-5] + '.csv')
-            n2 += json_to_csv(src, dst)
-    print(f"  {n2} entradas → {csv_other}/")
-
-
-def cmd_from_csv():
-    """Importa traducciones de CSV a JSON, y propaga a los ID0XXXX equivalentes."""
-    csv_dialog = os.path.join(TRANS, 'csv', 'dialog')
-    if not os.path.exists(csv_dialog):
-        print("  No existe translations/csv/dialog/ — ejecuta primero 'to-csv'")
-        return
-    n = csv_dir_to_json_dir(csv_dialog, os.path.join(TRANS, 'dialog'))
-    print(f"  {n} entradas actualizadas en translations/dialog/")
-
-    csv_other = os.path.join(TRANS, 'csv', 'other')
-    if os.path.exists(csv_other):
-        n2 = csv_dir_to_json_dir(csv_other, os.path.join(TRANS, 'other'))
-        print(f"  {n2} entradas actualizadas en translations/other/")
 
 
 def cmd_serve():
@@ -563,47 +668,92 @@ def cmd_serve():
 
 
 def cmd_progress():
-    """Muestra el progreso de traducción del directorio CSV."""
-    csv_dialog = os.path.join(TRANS, 'csv', 'dialog')
-    if not os.path.exists(csv_dialog):
-        print("  No existe translations/csv/dialog/ — ejecuta primero 'to-csv'")
+    """Show translation progress by reading translations/*.json directly."""
+    from digimon_toolkit.server import _file_progress
+
+    categories = []  # (label, done, total)
+    files_done = files_total = 0
+
+    dialog_dir = os.path.join(TRANS, 'dialog')
+    if os.path.exists(dialog_dir):
+        done = total = 0
+        for fn in sorted(os.listdir(dialog_dir)):
+            if not fn.endswith('.json') or fn.startswith('ID'):
+                continue
+            with open(os.path.join(dialog_dir, fn), 'r', encoding='utf-8') as f:
+                entries = json.load(f).get('dialog', [])
+            d, t = _file_progress(entries, 'translation')
+            done += d; total += t
+            files_total += 1
+            if t and d == t:
+                files_done += 1
+        categories.append(('Dialog', done, total))
+
+    eboot_dir = os.path.join(TRANS, 'eboot')
+    if os.path.exists(eboot_dir):
+        done = total = 0
+        for fn in sorted(os.listdir(eboot_dir)):
+            if not fn.endswith('.json'):
+                continue
+            with open(os.path.join(eboot_dir, fn), 'r', encoding='utf-8') as f:
+                strings = json.load(f).get('strings', [])
+            d, t = _file_progress(strings, 'translation')
+            done += d; total += t
+        categories.append(('EBOOT', done, total))
+
+    names_path = os.path.join(TRANS, 'names', 'names.json')
+    if os.path.exists(names_path):
+        with open(names_path, 'r', encoding='utf-8') as f:
+            nd = json.load(f)
+        all_names = nd.get('character_names', []) + nd.get('digimon_names', [])
+        done, total = _file_progress(all_names, 'translation')
+        categories.append(('Names', done, total))
+
+    other_dir = os.path.join(TRANS, 'other')
+    if os.path.exists(other_dir):
+        done = total = 0
+        for fn in sorted(os.listdir(other_dir)):
+            if not fn.endswith('.json') or fn.startswith('ID'):
+                continue
+            with open(os.path.join(other_dir, fn), 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if data.get('skip'):
+                continue
+            d, t = _file_progress(data.get('dialog', []), 'translation')
+            done += d; total += t
+        categories.append(('UI / other', done, total))
+
+    total_done = sum(d for _, d, _ in categories)
+    total_all = sum(t for _, _, t in categories)
+    if total_all == 0:
+        print("  No translation files found — run 'extract-text' first.")
         return
-    s = csv_stats(csv_dialog)
-    print(f"\n  Progreso de diálogos:")
-    print(f"    Ficheros completos : {s['files_done']}/{s['files_total']}")
-    print(f"    Líneas traducidas  : {s['lines_done']}/{s['lines_total']} ({s['pct']}%)")
+
+    print(f"\n  Translation progress:")
+    for label, done, total in categories:
+        pct = round(100 * done / total, 1) if total else 0.0
+        print(f"    {label:<12} {done}/{total} ({pct}%)")
+
+    pct = round(100 * total_done / total_all, 1)
     bar_len = 40
-    filled = int(bar_len * s['lines_done'] / s['lines_total']) if s['lines_total'] else 0
+    filled = int(bar_len * total_done / total_all)
     bar = '█' * filled + '░' * (bar_len - filled)
+    print(f"    {'Total':<12} {total_done}/{total_all} ({pct}%)")
     print(f"    [{bar}]")
+    if files_total:
+        print(f"    Dialog files complete: {files_done}/{files_total}")
 
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) >= 2 else ''
 
-    # Commands with extra arguments
-    if cmd == 'extract-image':
-        if len(sys.argv) < 3:
-            print("Usage: extract-image <file_id>   e.g. extract-image 0156")
-            return
-        cmd_extract_image(sys.argv[2])
-        return
-
-    if cmd == 'inject-image':
-        if len(sys.argv) < 5:
-            print("Usage: inject-image <file_id> <img_idx> <png_path>")
-            print("  e.g. inject-image 0156 4 output/images/0156/img_04_256x256.png")
-            return
-        cmd_inject_image(sys.argv[2], int(sys.argv[3]), sys.argv[4])
-        return
-
     cmds = {
         'extract-cpk':    cmd_extract_cpk,
         'extract-text':   cmd_extract_text,
         'extract-images': cmd_extract_images,
+        'extract-videos': cmd_extract_videos,
+        'extract-audio':  cmd_extract_audio,
         'extract-all':    cmd_extract_all,
-        'to-csv':         cmd_to_csv,
-        'from-csv':       cmd_from_csv,
         'progress':       cmd_progress,
         'apply':          cmd_apply,
         'serve':          cmd_serve,
