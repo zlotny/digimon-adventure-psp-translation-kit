@@ -43,6 +43,8 @@ PSP swizzle (tile layout):
 Index4 nibble order: high nibble = first pixel, low nibble = second pixel.
 """
 
+import os
+import re
 import struct
 from typing import Optional, List, Tuple, Dict, Any
 
@@ -56,6 +58,8 @@ FMT_RGBA4444 = 2
 FMT_RGBA8888 = 3
 FMT_INDEX4   = 4
 FMT_INDEX8   = 5
+FMT_INDEX16  = 6
+FMT_INDEX32  = 7
 
 
 # ─────────────────────────────────────────────────────────────
@@ -465,6 +469,19 @@ def gim_info_to_png(info: Dict[str, Any]) -> Optional[bytes]:
         img.frombytes(bytes(flat))
         img = img.convert('RGBA')
 
+    elif fmt in (FMT_INDEX16, FMT_INDEX32):
+        # Wider palette indices than PIL's 'P' mode supports (max 256 entries) —
+        # look up RGBA directly instead of going through a paletted image.
+        if pal_info is None:
+            return None
+        pal_raw  = pal_info['raw']
+        n_colors = pal_info['n_colors']
+        out = bytearray(w * h * 4)
+        for i, idx in enumerate(flat):
+            if idx < n_colors:
+                out[i * 4:i * 4 + 4] = pal_raw[idx * 4:idx * 4 + 4]
+        img = Image.frombytes('RGBA', (w, h), bytes(out))
+
     elif fmt == FMT_RGBA8888:
         out = bytearray(w * h * 4)
         for i, px in enumerate(flat):
@@ -555,6 +572,39 @@ def png_to_gim_pixels(png_data: bytes, info: Dict[str, Any]) -> Tuple[bytes, byt
 
         return raw_pixels, bytes(pal_rgba)
 
+    if fmt in (FMT_RGBA8888, FMT_RGBA5650, FMT_RGBA5551, FMT_RGBA4444):
+        # Direct-color formats carry no palette — pack pixels straight into
+        # the target bit layout (inverse of the decode math in gim_info_to_png).
+        rgba = list(img.tobytes())
+        pixels_2d = []
+        for y in range(h):
+            row = []
+            for x in range(w):
+                r, g, b, a = rgba[(y * w + x) * 4:(y * w + x) * 4 + 4]
+                if fmt == FMT_RGBA8888:
+                    px = r | (g << 8) | (b << 16) | (a << 24)
+                elif fmt == FMT_RGBA5650:
+                    px = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+                elif fmt == FMT_RGBA5551:
+                    px = ((r >> 3) << 11) | ((g >> 3) << 6) | ((b >> 3) << 1) | (1 if a >= 128 else 0)
+                else:  # RGBA4444
+                    px = ((r >> 4) << 12) | ((g >> 4) << 8) | ((b >> 4) << 4) | (a >> 4)
+                row.append(px)
+            pixels_2d.append(row)
+
+        if order == 1:
+            over_w = _overscan(w, tile_w)
+            over_h = _overscan(h, tile_h)
+            flat_swizzle = _inv_swap_tiles(pixels_2d, w, h, tile_w, tile_h)
+            swizzle_2d = [flat_swizzle[y * over_w:(y + 1) * over_w] for y in range(over_h)]
+        else:
+            swizzle_2d = pixels_2d
+            over_w, over_h = w, h
+
+        ih_mock = {'bpp': bpp, 'pitch_align': 16}
+        raw_pixels = _pack_pixels(swizzle_2d, ih_mock, over_w, over_h)
+        return raw_pixels, b''
+
     return b'', b''
 
 
@@ -598,11 +648,52 @@ def inject_image_into_file(file_data: bytes, img_idx: int, png_path: str) -> byt
 
 
 # ─────────────────────────────────────────────────────────────
-# Legacy stubs
+# Translation progress / listing (web app)
 # ─────────────────────────────────────────────────────────────
 
-def is_gim(data: bytes) -> bool:
-    return data[:len(GIM_SIG)] == GIM_SIG
+_IMG_NAME_RE = re.compile(r'^(?P<fileid>.+)_(?P<idx>\d+)_(?P<w>\d+)x(?P<h>\d+)$')
 
-def extract_gim_images(data: bytes): return []
-def gim_to_png_bytes(gim) -> Optional[bytes]: return None
+
+def _base_pngs(fdir: str) -> List[str]:
+    return sorted(fn for fn in os.listdir(fdir)
+                  if fn.endswith('.png') and not fn[:-4].endswith('_translated'))
+
+
+def list_image_files(images_dir: str) -> List[Dict[str, Any]]:
+    """List image-bearing source files for the sidebar: [{id, done, total}, ...]."""
+    result = []
+    if not os.path.isdir(images_dir):
+        return result
+    for fileid in sorted(os.listdir(images_dir)):
+        fdir = os.path.join(images_dir, fileid)
+        if not os.path.isdir(fdir):
+            continue
+        base = _base_pngs(fdir)
+        if not base:
+            continue
+        done = sum(1 for fn in base
+                   if os.path.exists(os.path.join(fdir, f'{fn[:-4]}_translated.png')))
+        result.append({'id': fileid, 'done': done, 'total': len(base)})
+    return result
+
+
+def list_file_image_entries(images_dir: str, fileid: str) -> List[Dict[str, Any]]:
+    """List images within one source file's folder, for the side-by-side viewer."""
+    fdir = os.path.join(images_dir, fileid)
+    if not os.path.isdir(fdir):
+        return []
+    entries = []
+    for fn in _base_pngs(fdir):
+        stem = fn[:-4]
+        m = _IMG_NAME_RE.match(stem)
+        translated_fn = f'{stem}_translated.png'
+        has_translated = os.path.exists(os.path.join(fdir, translated_fn))
+        entries.append({
+            'idx': int(m.group('idx')) if m else 0,
+            'width': int(m.group('w')) if m else 0,
+            'height': int(m.group('h')) if m else 0,
+            'filename': fn,
+            'translated_filename': translated_fn if has_translated else None,
+        })
+    entries.sort(key=lambda e: e['idx'])
+    return entries
