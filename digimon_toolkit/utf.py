@@ -141,13 +141,6 @@ class UTFTable:
 
         return table
 
-    def _read_value_at(self, data: bytes, abs_file_offset: int) -> Any:
-        """Read a single value from an absolute file offset within this table."""
-        local_off = abs_file_offset - self.base_offset
-
-        # We need to know which column this is. Instead, read per-row.
-        pass
-
     def get_row(self, row_index: int, raw_data: bytes) -> Dict[str, Any]:
         """Get row data as a dictionary of column_name -> value."""
         row_abs = self.rows_offset
