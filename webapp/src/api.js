@@ -6,6 +6,12 @@ export async function getFiles() {
   return r.json()
 }
 
+export async function getImageFile(fileid) {
+  const r = await fetch(`${BASE}/images/file/${fileid}`)
+  if (!r.ok) throw new Error(`Failed to load images/${fileid}`)
+  return r.json()
+}
+
 export async function getFile(category, name) {
   const r = await fetch(`${BASE}/file/${category}/${name}`)
   if (!r.ok) throw new Error(`Failed to load ${category}/${name}`)

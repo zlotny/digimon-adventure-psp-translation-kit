@@ -56,6 +56,7 @@ const categories = reactive([
   { key: 'other',  label: 'Other',  open: true },
   { key: 'eboot',  label: 'Eboot',  open: true },
   { key: 'names',  label: 'Names',  open: true },
+  { key: 'images', label: 'Images', open: true },
 ])
 
 function catDone(key) {
@@ -69,10 +70,20 @@ function catPct(key) {
   return t ? Math.round(100 * catDone(key) / t) : 0
 }
 
-const ALL_CATS = ['dialog','other','eboot','names']
+const ALL_CATS = ['dialog','other','eboot','names','images']
 const totalDone     = computed(() => ALL_CATS.reduce((s, k) => s + catDone(k), 0))
 const totalTotal    = computed(() => ALL_CATS.reduce((s, k) => s + catTotal(k), 0))
-const overallPct    = computed(() => totalTotal.value ? Math.round(100 * totalDone.value / totalTotal.value) : 0)
+
+// Rounding straight to an integer can display "100%" when a handful of
+// images are still untranslated against a backdrop of 15000+ text lines —
+// only report 100 when every unit is actually done, one decimal otherwise.
+const overallPct = computed(() => {
+  const t = totalTotal.value
+  if (!t) return 0
+  const d = totalDone.value
+  if (d >= t) return 100
+  return Math.min(99.9, Math.round(1000 * d / t) / 10)
+})
 const totalProblems = computed(() => ALL_CATS.reduce((s, k) =>
   s + (store.files[k] || []).reduce((s2, f) => s2 + (f.problems || 0), 0), 0))
 

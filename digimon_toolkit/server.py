@@ -7,8 +7,11 @@ import json
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 
+from digimon_toolkit.psp_image import list_image_files, list_file_image_entries
+
 BASE = Path(__file__).parent.parent
 TRANS = BASE / 'translations'
+IMAGES_DIR = TRANS / 'images'
 WEBAPP_DIST = BASE / 'webapp' / 'dist'
 
 app = Flask(__name__, static_folder=None)
@@ -169,7 +172,7 @@ def _write_entry(category, name, index, translation):
 
 @app.route('/api/files')
 def api_files():
-    result = {'dialog': [], 'eboot': [], 'names': [], 'other': []}
+    result = {'dialog': [], 'eboot': [], 'names': [], 'other': [], 'images': []}
 
     dialog_dir = TRANS / 'dialog'
     if dialog_dir.exists():
@@ -212,7 +215,22 @@ def api_files():
             problems = sum(1 for e in entries if _entry_has_problem(e.get('translation', ''), e.get('_length')))
             result['other'].append({'id': p.stem, 'done': done, 'total': total, 'problems': problems})
 
+    result['images'] = list_image_files(str(IMAGES_DIR))
+
     return jsonify(result)
+
+
+@app.route('/api/images/file/<fileid>')
+def api_images_file(fileid):
+    entries = list_file_image_entries(str(IMAGES_DIR), fileid)
+    if not entries:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'entries': entries})
+
+
+@app.route('/api/images/raw/<path:path>')
+def serve_image(path):
+    return send_from_directory(IMAGES_DIR, path)
 
 
 @app.route('/api/file/<category>/<name>')

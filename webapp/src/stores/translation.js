@@ -11,10 +11,11 @@ import { PROXY_CHARS, LINE_CHAR_LIMITS, ACCENT_SUPPORTED, ACCENT_STRIP, SJIS_SYM
 const SUPPORTED_EXTRA_CHARS = new Set([...Object.keys(ACCENT_SUPPORTED), ...Object.keys(ACCENT_STRIP), ...SJIS_SYMBOLS])
 
 export const useTranslationStore = defineStore('translation', () => {
-  const files = ref({ dialog: [], eboot: [], names: [], other: [] })
+  const files = ref({ dialog: [], eboot: [], names: [], other: [], images: [] })
   const currentCategory = ref(null)
   const currentFileId = ref(null)
   const entries = ref([])
+  const imageEntries = ref([])
   const currentIndex = ref(0)
   const dirty = ref(false)
   const toast = ref(null)
@@ -25,12 +26,19 @@ export const useTranslationStore = defineStore('translation', () => {
   }
 
   async function loadFile(category, name) {
-    const data = await api.getFile(category, name)
     currentCategory.value = category
     currentFileId.value = name
-    entries.value = data.entries
     currentIndex.value = 0
     dirty.value = false
+    if (category === 'images') {
+      const data = await api.getImageFile(name)
+      imageEntries.value = data.entries
+      entries.value = []
+      return
+    }
+    const data = await api.getFile(category, name)
+    entries.value = data.entries
+    imageEntries.value = []
     _syncFileMeta(category, name)
   }
 
@@ -181,6 +189,7 @@ export const useTranslationStore = defineStore('translation', () => {
     currentCategory,
     currentFileId,
     entries,
+    imageEntries,
     currentIndex,
     dirty,
     toast,
