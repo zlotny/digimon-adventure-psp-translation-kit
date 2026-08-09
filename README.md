@@ -72,6 +72,16 @@ sudo apt install xdelta3
 # Windows — download from https://github.com/jmacd/xdelta-gpl/releases
 ```
 
+**4b. Install ffmpeg** (needed to extract cutscene videos)
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Debian / Ubuntu
+sudo apt install ffmpeg
+```
+
 **5. Extract the game files**
 
 The ISOs must be unpacked into `orig_iso/` and `patched_iso/` before the toolkit can read them. Use [7-Zip](https://www.7-zip.org/) (cross-platform) or `hdiutil` on macOS:
@@ -133,14 +143,31 @@ Line character limits (warnings):
 
 When a file is finished the UI advances to the next one automatically.
 
-### CSV workflow (advanced / bulk editing)
+### Images, video & audio
 
 ```bash
-python digimon_toolkit/cli.py to-csv      # export JSONs → CSVs in translations/csv/
-# edit translations/csv/dialog/*.csv in any spreadsheet or editor
-python digimon_toolkit/cli.py from-csv    # import back to JSON
-python digimon_toolkit/cli.py apply       # build ISO + patch
+python digimon_toolkit/cli.py extract-images   # GIM textures changed by the patch → translations/images/
+python digimon_toolkit/cli.py extract-videos    # TV opening (video+audio) → translations/videos/intro.mp4 (ffmpeg required)
+python digimon_toolkit/cli.py extract-audio     # Menu theme → translations/audio/menu_theme.wav
 ```
+
+Images land at `translations/images/<fileid>/<fileid>_<idx>_<w>x<h>.png` —
+only the ones that differ from the Japanese original (diffed per-image, so a
+file with 8 icons where only 1 changed only extracts that 1), currently 28
+images across 22 files. To translate one, save an edited copy
+next to it with `_translated` before the extension
+(`<fileid>_<idx>_<w>x<h>_translated.png`, same dimensions); `apply` injects
+every `_translated.png` it finds back at the image's original byte offset and
+reports what it skipped. The TV series opening lands at
+`translations/videos/intro.mp4` and the menu theme at
+`translations/audio/menu_theme.wav`, both with their real audio recovered
+from a PSP-specific ATRAC3+ framing ffmpeg can't demux on its own — see
+`AGENTS.md` for how. The menu theme loops from a non-zero sample (not from
+the start) — dub the whole file 1:1 without retiming. Save the encoded
+result (from an external ATRAC3+ encoder — see `AGENTS.md`, this part
+needs a proprietary Windows tool) as `intro_translated.at3` /
+`menu_theme_translated.at3` next to each; `apply` splices both in
+automatically, confirmed booting and playing correctly on real PPSSPP.
 
 ### Building the output
 
@@ -162,12 +189,10 @@ Output files land in `output/`:
 ```bash
 python digimon_toolkit/cli.py extract-cpk              # Extract orig_data/ and patched_data/
 python digimon_toolkit/cli.py extract-text             # Parse ESDF text → JSON in translations/
-python digimon_toolkit/cli.py extract-images           # Extract patched UI textures to output/images/
-python digimon_toolkit/cli.py extract-image <id>       # Extract images from a single file (e.g. 0156)
-python digimon_toolkit/cli.py inject-image <id> <N> <png>  # Replace image N in file <id>
-python digimon_toolkit/cli.py extract-all              # Run all three extract steps
-python digimon_toolkit/cli.py to-csv                   # Export JSON → CSV (translations/csv/)
-python digimon_toolkit/cli.py from-csv                 # Import CSV → JSON
+python digimon_toolkit/cli.py extract-images           # Extract GIM textures changed by the patch → translations/images/
+python digimon_toolkit/cli.py extract-videos           # Extract the TV opening (video+audio) → translations/videos/intro.mp4
+python digimon_toolkit/cli.py extract-audio            # Extract the menu theme → translations/audio/menu_theme.wav
+python digimon_toolkit/cli.py extract-all              # Run all four extract steps
 python digimon_toolkit/cli.py progress                 # Show translation progress
 python digimon_toolkit/cli.py apply                    # Build ISO + xdelta patch
 python digimon_toolkit/cli.py serve                    # Launch translation web UI

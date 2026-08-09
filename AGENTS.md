@@ -4,9 +4,9 @@
 
 ## Overview
 
-This toolkit extracts text from the English fan patch (v1.2) of **Digimon Adventure (PSP)**, converts it to an editable CSV format, and repackages translated content back into a playable ISO and distributable xdelta patch.
+This toolkit extracts text, images, and cutscene videos from the English fan patch (v1.2) of **Digimon Adventure (PSP)**, exposes the text through an editable JSON backend (driven by a translation web app), and repackages translated content back into a playable ISO and distributable xdelta patch.
 
-The patch source is the English fan translation applied over the original Japanese ISO. The toolkit is language-agnostic: any target language can be plugged in by providing a translation guide in its own folder alongside the CSVs.
+The patch source is the English fan translation applied over the original Japanese ISO. The toolkit is language-agnostic: any target language can be plugged in by providing a translation guide in its own folder alongside the JSON files.
 
 ---
 
@@ -14,24 +14,26 @@ The patch source is the English fan translation applied over the original Japane
 
 ```
 translations/
-├── csv/
-│   ├── dialog/      ← Working files — one CSV per game scene
-│   └── other/       ← Secondary UI/menu text
 ├── dialog/          ← JSON backend (do not edit directly)
 ├── other/           ← JSON backend for secondary text
 ├── eboot/           ← Executable strings (UI, skills, episode menu)
-└── names/
-    └── names.json   ← Character and Digimon names
+├── names/
+│   └── names.json   ← Character and Digimon names
+├── images/          ← GIM textures the English patch changed vs. Japanese, as PNG
+│   └── <fileid>/<fileid>_<idx>_<w>x<h>.png (+ optional _translated.png sibling)
+├── videos/          ← TV opening (file 3691), extracted to intro.mp4 + dub reference files
+└── audio/           ← Menu theme (file 3693 track 0), extracted to menu_theme.wav + dub reference files
 
 digimon_toolkit/
 ├── cli.py           ← Command-line interface
 ├── font_tool.py     ← Font extraction, atlas edit pipeline, accent glyph patching
-├── csv_tools.py     ← JSON ↔ CSV conversion
 ├── cpk.py           ← CRI CPK archive reader/writer
 ├── esdf.py          ← ESDF text format parser
 ├── pbin.py          ← pBin container parser
 ├── utf.py           ← @UTF table parser
-└── psp_image.py     ← GIM/PSP image handler
+├── psp_image.py     ← GIM/PSP image handler
+├── psmf.py          ← PSMF/PMF cutscene demuxer
+└── afs2.py          ← AFS2/AWB BGM archive reader
 
 <LANG>_TRANSLATION/  ← One folder per target language (e.g. FR_FR_TRANSLATION/)
                         Contains language guide and reference docs for translators.
@@ -50,10 +52,10 @@ output/              ← Generated ISO and xdelta patch
 ```bash
 python digimon_toolkit/cli.py extract-cpk     # Extract orig_data/ and patched_data/
 python digimon_toolkit/cli.py extract-text    # Parse ESDF text → JSON in translations/
-python digimon_toolkit/cli.py extract-images  # Extract GIM textures to PNG
-python digimon_toolkit/cli.py extract-all     # Run all three extract steps
-python digimon_toolkit/cli.py to-csv          # Export dialog JSONs → CSV in translations/csv/
-python digimon_toolkit/cli.py from-csv        # Import CSV translations → JSON
+python digimon_toolkit/cli.py extract-images  # Extract GIM textures changed by the patch → translations/images/
+python digimon_toolkit/cli.py extract-videos  # Extract the TV opening (video+audio) → translations/videos/intro.mp4
+python digimon_toolkit/cli.py extract-audio   # Extract the menu theme → translations/audio/menu_theme.wav
+python digimon_toolkit/cli.py extract-all     # Run all five extract steps
 python digimon_toolkit/cli.py progress        # Show translation progress bar
 python digimon_toolkit/cli.py apply           # Apply translations → build ISO + xdelta patch
 ```
@@ -65,52 +67,97 @@ python digimon_toolkit/cli.py apply           # Apply translations → build ISO
 ### Normal translation session
 
 ```bash
-# 1. Check progress
-python digimon_toolkit/cli.py progress
+# 1. Launch the translation web app (reads/writes translations/*.json directly)
+python digimon_toolkit/cli.py serve
 
-# 2. Edit CSVs in translations/csv/dialog/
-#    Fill in the 'translation' column for each row.
+# 2. Translate dialog/EBOOT/names text in the browser UI, and/or drop
+#    <name>_translated.png / _translated.mp4 files next to extracted
+#    images/videos (see "Images & video" below).
 
-# 3. Import CSVs back to JSON
-python digimon_toolkit/cli.py from-csv
-
-# 4. Build ISO and patch
+# 3. Build ISO and patch
 python digimon_toolkit/cli.py apply
 ```
+
+Text lives in `translations/dialog/*.json`, `translations/eboot/*.json`, and
+`translations/names/names.json` — edit these through the web app (`serve`),
+not by hand; it validates byte limits and unsupported characters as you type.
 
 ### Full extraction from scratch
 
 Only needed if patched_data/ or translations/ are missing or corrupted.
 
 ```bash
-python digimon_toolkit/cli.py extract-cpk
-python digimon_toolkit/cli.py extract-text
-python digimon_toolkit/cli.py to-csv
+python digimon_toolkit/cli.py extract-all
 ```
 
 ---
 
-## CSV Format
+## Images & video
 
-One CSV per dialog scene, located in `translations/csv/dialog/`.
-
-```
-index,limit,original,translation
-0,71,"During the summer of that year,\nstrange events happened all over\nEarth.",
-5,7,Taichi!,
-6,16,"What's up, Sora?",
-```
-
-| Column | Description | Edit? |
-|--------|-------------|-------|
-| `index` | Entry number within the file | NO |
-| `limit` | Maximum bytes for the translation | NO |
-| `original` | English source text | NO |
-| `translation` | Translated text in the target language | YES |
-
-**Newlines** inside text are represented as the literal two-character sequence `\n`. Each `\n` counts as 1 byte toward the `limit`.
-
-**Byte limit enforcement**: the `limit` value equals the byte length of the English source string (post-accent-stripping). Translations exceeding this limit are silently truncated in-game. The `from-csv` import does not validate lengths — check manually or via `csv_tools.check_lengths()`.
+- **Images**: `extract-images` diffs every GIM texture in `patched_data/`
+  against `orig_data/` **per-image, not per-file** (a file with 8 icons
+  where only 1 differs from the Japanese original only extracts that 1) and
+  writes only the ones the English patch actually changed to
+  `translations/images/<fileid>/<fileid>_<idx>_<w>x<h>.png` — currently 28
+  images across 22 files, not the ~12,300 textures/icons/backgrounds in the
+  whole game. This needs `orig_data/` to exist (run `extract-cpk` first). To
+  translate one, save an edited copy next to it named
+  `<fileid>_<idx>_<w>x<h>_translated.png` (same dimensions) — some of these
+  render as white ink on a transparent background (this game's normal UI text
+  style), so they'll look blank in a viewer with a white background; check
+  the alpha channel, not just the RGB, before assuming one is empty. `apply`
+  picks up every `_translated.png` it finds and injects it back at the
+  original byte offset; anything without one is left untouched. A few images
+  use pixel formats (Index16/Index32 — GIM format codes 6/7) that can be
+  extracted for reference but not re-injected (no >256-colour quantization
+  path); `apply` reports these separately if you try. The web app (`serve`)
+  shows an **Images** category in the sidebar (`x/y` count, folded into the
+  overall progress total) — open a file there to see each image's original
+  next to its translation side by side, or a reminder that one's missing.
+  It's a read-only comparison view, not an editor: translations still happen
+  by saving the `_translated.png` file on disk, same as the CLI workflow.
+- **Video**: `extract-videos` extracts only file `3691` — the TV series
+  opening theme — to `translations/videos/intro.mp4`, video and audio both
+  (see "PSMF video format" below for how the audio track is recovered; it's
+  not something ffmpeg does out of the box).
+  Reference/dub files for it live alongside the extraction:
+  `intro_translated.mp4` (the edited video, kept for the record) and
+  `intro_translated.at3` (raw ATRAC3+ audio, encoded externally — Sony's
+  encoder is proprietary/Windows-only, no way around that) — this second
+  file is what `apply` actually splices back in. Reinjection keeps the
+  original H.264 video bytes 100% untouched and only replaces the audio's
+  PES packets, rewrapped in the PSP-specific frame format (see "PSMF video
+  format" below) — confirmed booting and playing correctly on real PPSSPP.
+  `digimon_toolkit.psmf.splice_audio_into_psmf()` requires the new audio to
+  fit the original's exact byte budget (no CPK resize support yet) and to
+  use the same 744-byte ATRAC3+ frame size as this game's tracks; `apply`
+  reports a size mismatch rather than silently skipping it. Requires
+  `ffmpeg` on `PATH`.
+- **Audio (BGM)**: `extract-audio` extracts only file `3693` track id `0` —
+  the menu theme — to `translations/audio/menu_theme.wav`, decoded to plain
+  PCM (see "AFS2 audio format" below). This track loops (see its `smpl`
+  chunk / `digimon_toolkit.afs2.loop_points()`) from a **non-zero** sample,
+  not from the start — dub the whole 0→end file 1:1 without retiming so the
+  existing loop points still land correctly, and rebuild an equivalent
+  `smpl` chunk with adjusted sample positions if the encoded result ends up
+  a different length (`translations/audio/menu_theme_translated.at3` is
+  literally what gets spliced in — including its `smpl` chunk, so build it
+  correctly before handing it off). `apply` picks it up via
+  `digimon_toolkit.afs2.splice_track_into_archive()`, which pads the new
+  track to exactly fill its original archive slot — every other track in
+  the archive is untouched. Confirmed booting and looping correctly on real
+  PPSSPP. A track *larger* than its original slot needs the AFS2 archive's
+  own offset table rebuilt (self-contained — only affects that one CPK
+  entry) — not implemented; `apply` reports this rather than truncating
+  anything.
+  **Lesson learned the hard way**: ATRAC3+ is a transform codec with
+  overlapping windows between frames — never trim frames from an already-
+  encoded stream to hit a size budget; it corrupts the reconstruction of
+  the frame(s) before the cut, producing audible noise right at the trim
+  point. If new audio doesn't fit, shorten the *source* PCM before encoding
+  (with margin — the encoder's own delay/lookahead padding means the
+  output is a few frames longer than a naive sample-count estimate) and
+  re-encode, don't touch the compressed output afterward.
 
 ---
 
@@ -151,9 +198,9 @@ errors. Several files are near-duplicate script branches for when the party spli
 (e.g. `3531`/`3532`, `3533`/`3534`, `3527`/`3528`) — translate both, they diverge in
 minor dialogue.
 
-### Speaker IDs in dialog CSV
+### Speaker IDs in dialog entries
 
-Each dialog CSV row includes a `speaker` column with a numeric ID (0–9). This ID is extracted from the ESDF binary record table that precedes the text region in each file.
+Each dialog entry carries a `speaker_id` field (0–9), surfaced by the web app as `speaker`. This ID is extracted from the ESDF binary record table that precedes the text region in each file.
 
 The ID is **scene-local**: the same numeric value can refer to different characters across different episode files. The mapping must be established empirically by playing the game and observing which name the engine displays for each ID in each scene.
 
@@ -197,26 +244,48 @@ At runtime the game copies glyphs on demand into a 512×256 CLUT4 texture at PSP
 
 `cli.py:cmd_apply()` remaps these automatically. **Do not use @, #, $, &, *, _, = literally in translations.**
 
-UI text (buttons, menus, banners) is **baked into GIM textures** and can be patched via `extract-image` / `inject-image`.
+UI text (buttons, menus, banners) is **baked into GIM textures** — see "Images & video" above for the extract/translate/apply pipeline.
 
-### Patched image files
+### Image files the English patch actually changed
 
-The English patch modified pixel data in 11 files. All are extractable as PNG:
+This is what `extract-images`' orig-vs-patched diff currently finds — 28
+images across 22 files, identified by reading each one (not guessed from
+file ID):
 
-| File | Content |
-|------|---------|
-| `0015` | Yes/No confirmation buttons |
-| `0044` | Battle command: GUARD |
-| `0045` | Battle command: FLEE |
-| `0046` | Battle command: SKILL |
-| `0047` | Battle command: ITEM |
-| `0048` | L/R button labels |
-| `0050` | Battle command: ATTACK |
-| `0069` | Dialog panel with character portraits |
-| `0070` | Battle UI decorative lines |
-| `0126` | Battle HUD (HP / character name) |
-| `0151` | RANK UP screen |
-| `0156` | Startup logo sequence (img_04 = WARNING screen, 512×256) |
+| File | Image(s) | Content |
+|------|----------|---------|
+| `0010` | 01, 02, 04 | Menu headers: ENTRY, EPISODE SELECTION, DUNGEON SELECTION |
+| `0015` | 07 | Yes/No confirmation buttons |
+| `0044` | 00, 01, 02 | Battle command: GUARD (multi-state icon) |
+| `0045` | 01 | Battle command: FLEE |
+| `0046` | 01 | Battle command: SKILL |
+| `0047` | 01 | Battle command: ITEM |
+| `0048` | 01 | Battle command: L/R button labels |
+| `0049` | 01 | Battle command: EVOLVE |
+| `0050` | 00, 01 | Battle command: ATTACK |
+| `0069` | 05 | Dialog panel with character portraits |
+| `0070` | 05 | Battle UI decorative lines |
+| `0079` | 01 | Menu header: BATTLE RESULTS |
+| `0089` | 01 | Menu header: MAIN MENU |
+| `0104` | 01 | Menu header: PARTY |
+| `0108` | 01, 03 | Menu headers: DIGIPIECE, ITEMS |
+| `0114` | 01 | Menu header: LIBRARY |
+| `0124` | 01 | Menu header: ITEMS |
+| `0125` | 01 | Menu header: STATUS |
+| `0126` | 12 | Battle HUD (HP / character name) — idx 12 is a "STRATEGY" label |
+| `0130` | 01 | Menu header: OPTIONS |
+| `0151` | 00 | RANK UP screen |
+| `0156` | 04 | Startup logo sequence — **the "WARNING: unofficial translation, digimonadventurenglish.weebly.com" credit banner** (512×256); replace `0156_04_512x256_translated.png` with your own credit text/site to re-brand it |
+
+Most of the 256×32 menu-header banners render as white ink with anti-aliased
+alpha and no fill — they'll look blank against a plain white background;
+open them over a dark/checkered background to actually see the text.
+
+This list is a snapshot of the current English patch, not a hardcoded
+allowlist — re-running `extract-images` re-diffs from scratch and picks up
+anything a future patch version changes. The other ~2,330 files with GIM
+textures in the game (icons, portraits, unmodified backgrounds) are left
+alone; they were never touched by the English translation.
 
 ### GIM image format
 
@@ -266,14 +335,20 @@ Palette data    [pal_hdr + 64]   palette color entries
 
 #### Pixel format codes
 
-| Code | Name       | bpp |
-|------|------------|-----|
-| 0    | RGBA5650   | 16  |
-| 1    | RGBA5551   | 16  |
-| 2    | RGBA4444   | 16  |
-| 3    | RGBA8888   | 32  |
-| 4    | Index4     | 4   |
-| 5    | Index8     | 8   |
+| Code | Name       | bpp | Inject support |
+|------|------------|-----|-----------------|
+| 0    | RGBA5650   | 16  | yes (direct pack, no palette) |
+| 1    | RGBA5551   | 16  | yes (direct pack, no palette) |
+| 2    | RGBA4444   | 16  | yes (direct pack, no palette) |
+| 3    | RGBA8888   | 32  | yes (direct pack, no palette) |
+| 4    | Index4     | 4   | yes (16-colour quantize) |
+| 5    | Index8     | 8   | yes (256-colour quantize) |
+| 6    | Index16    | 16  | extract only — no >256-colour quantization path |
+| 7    | Index32    | 32  | extract only — no >256-colour quantization path |
+
+Rare in this game (Index16/32 together are ~4.5% of all images, mostly
+particle/smoke-style textures) — `gim_info_to_png` handles all eight for
+extraction; `png_to_gim_pixels` handles 0–5 for re-injection.
 
 #### PSP swizzle (tile layout)
 
@@ -306,6 +381,82 @@ img.putpalette(rgba_bytes, rawmode='RGBA')   # NOT putpalette(rgb_bytes)
 ```
 Without `rawmode='RGBA'`, PIL silently drops the alpha channel and all pixels become fully opaque, making transparent areas render as solid colours.
 
+### PSMF video format
+
+Cutscenes (`patched_data/3634`–`3691`, 58 files) are Sony **PSMF** containers
+(magic `PSMF0015`), not CRI Sofdec despite living in a CRI CPK. Reference
+implementation: `digimon_toolkit/psmf.py`.
+
+| Offset | Field | Notes |
+|--------|-------|-------|
+| +0x00 | signature | 4 bytes, `"PSMF"` |
+| +0x04 | version | 4 ASCII digits, e.g. `"0015"` |
+| +0x08 | data_offset | u32 **big-endian** — byte offset where the payload starts (2048 in every file in this game) |
+
+The payload from `data_offset` onward is a standard **MPEG Program Stream**
+(starts with pack header `0x000001BA`) — video is H.264 PES stream_id `0xE0`
+(480×272), which `ffmpeg -f mpeg -i - -c copy` demuxes natively.
+
+Audio is Sony ATRAC3+ carried as PES stream_id `0xBD` (private_stream_1) —
+**ffmpeg's generic MPEG-PS demuxer never surfaces this as a stream at all**
+(it only knows the DVD-style AC3/DTS/LPCM private_stream_1 convention, not
+Sony's PSP-specific one), so getting audio out takes two extra parsing
+layers on top of the standard PES header, both confirmed against PPSSPP's
+own working demuxer (`Core/HW/MpegDemux.cpp` — not guessed, since a real,
+shipping emulator has to get this exactly right or movies wouldn't play):
+
+1. **PES sub-header** — each `0xBD` packet has a 1-byte channel id after the
+   standard PES header, then 3 more sub-header bytes (4 if channel is
+   `0xB0`–`0xBF`), before the actual payload.
+2. **Frame-wrapper layer** — concatenating those payloads yields a stream of
+   PSP-specific wrappers: 2-byte sync word `0x0F 0xD0`, then 2 code bytes
+   where `wrapper_size = (((code1&3)<<8) | code2*8) + 16`; the real ATRAC3+
+   frame is `wrapper[8:]`.
+
+The concatenated raw ATRAC3+ frames are wrapped in a minimal synthetic Sony
+OMA (`.oma`) header (96 bytes: `"EA3"` + zero + size 96 + unencrypted marker
++ `OMA_CODECID_ATRAC3P` + a 3-byte `codec_params` field encoding sample rate
+index, channel id, and frame size — layout from FFmpeg's own
+`libavformat/oma.h`/`omadec.c`) so ffmpeg's built-in `atrac3plus` **decoder**
+can read it — decoding ATRAC3+ is open-source/reverse-engineered and ships in
+stock ffmpeg; only the **encoder** is Sony's proprietary Windows-only tool.
+Every PSP movie uses 44.1kHz stereo (PPSSPP hardcodes this — no per-file
+codec detection), so those parameters are fixed, not detected per file.
+
+`digimon_toolkit/psmf.py` implements both layers and muxes the result:
+video stream-copied losslessly, audio decoded and re-encoded to AAC (not a
+valid MP4 codec otherwise). If audio extraction fails for a given file for
+any reason, it falls back to video-only rather than losing the video too.
+
+### AFS2 audio format
+
+BGM tracks (`patched_data/3693`, `3840`, ...) are CRI **AFS2** archives
+(magic `"AFS2"`) — a flat table of `(track_id → byte range)` followed by
+the tracks themselves, each a self-contained RIFF file wrapping raw
+ATRAC3+ (no PSP-movie 8-byte frame wrapper here — this is the "plain" Sony
+WAVE-for-ATRAC3+ format, decodable by ffmpeg directly). Header layout
+confirmed against vgmstream's reference reader (`src/meta/awb.c`,
+github.com/vgmstream/vgmstream — AFS2/AWB is the same format under two
+names):
+
+| Offset | Field | Notes |
+|--------|-------|-------|
+| +0x00 | signature | 4 bytes, `"AFS2"` |
+| +0x05 | offset_size | u8 — byte width of each offset table entry (4 or 2) |
+| +0x06 | waveid_alignment | u16 LE — byte width of each id table entry (usually 2) |
+| +0x08 | total_subsongs | s32 LE |
+| +0x0C | offset_alignment | u16 LE — offsets round up to this boundary |
+| +0x10 | id table | `total_subsongs × waveid_alignment` bytes |
+| ... | offset table | `(total_subsongs + 1) × offset_size` bytes (last entry = archive end) |
+
+Some tracks carry a RIFF `smpl` chunk with an explicit loop **that doesn't
+start at sample 0** — `digimon_toolkit/afs2.py:loop_points()` reads it
+directly (standard RIFF `smpl` layout: 9-field header, then one 6-field
+loop record with `start`/`end` sample offsets). The menu theme's loop is
+8.98s→81.73s with an 8.98s one-time lead-in before it — get this wrong when
+dubbing and the loop still cuts at the same sample, just against different
+audio.
+
 ### Character encoding
 
 ESDF text is encoded as Latin-1 single bytes. The `apply` command:
@@ -331,6 +482,7 @@ python digimon_toolkit/font_tool.py import-atlas   # write atlas back to patched
 
 - Python 3.8+
 - `xdelta3` (for patch generation): `brew install xdelta` / `apt install xdelta3`
+- `ffmpeg` (for video extraction): `brew install ffmpeg` / `apt install ffmpeg`
 
 ### Output files
 
